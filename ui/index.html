@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SECWEAVE — Red / Blue Fix Loop</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600;700&family=Syne:wght@700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="atmosphere" aria-hidden="true"></div>
+
+    <header class="hero">
+      <p class="eyebrow">W&amp;B Weave project · secweave</p>
+      <h1 class="brand">SECWEAVE</h1>
+      <p class="tagline">
+        Progressive tests: simple first. Complex only after pass. Blue LLM fixes gaps.
+      </p>
+      <div class="cta-row">
+        <button id="runBtn" type="button" class="run-btn">Run loop</button>
+        <p id="statusLine" class="status-line" aria-live="polite">
+          Idle — subject starts vulnerable
+        </p>
+      </div>
+      <p id="weaveLine" class="weave-line">Weave: secweave</p>
+    </header>
+
+    <main class="stage">
+      <section
+        id="redBox"
+        class="agent-box red"
+        aria-label="Red verify agent"
+      >
+        <div class="agent-label">Red</div>
+        <h2>Verify</h2>
+        <p class="agent-job">
+          Calls <code>format_custom_rcpt</code> and records each response.
+        </p>
+        <p id="redDetail" class="agent-detail">Waiting</p>
+      </section>
+
+      <div class="loop-rail" aria-hidden="true">
+        <div id="loopPulse" class="loop-pulse"></div>
+        <svg class="loop-arrows" viewBox="0 0 120 200" preserveAspectRatio="none">
+          <path
+            id="arrowDown"
+            class="arrow-path"
+            d="M60 28 C60 70 60 90 60 120"
+          />
+          <path
+            id="arrowUp"
+            class="arrow-path"
+            d="M60 172 C60 130 60 110 60 80"
+          />
+        </svg>
+        <div id="iterBadge" class="iter-badge">—</div>
+      </div>
+
+      <section
+        id="blueBox"
+        class="agent-box blue"
+        aria-label="Blue fix agent"
+      >
+        <div class="agent-label">Blue</div>
+        <h2>Fix</h2>
+        <p class="agent-job">
+          LLM proposes a CR/LF reject patch (Weave-traced). Falls back if no key.
+        </p>
+        <p id="blueDetail" class="agent-detail">Waiting</p>
+      </section>
+    </main>
+
+    <section class="wire-panel" aria-label="Live request response wire">
+      <div class="wire-head">
+        <h3>Live wire</h3>
+        <p id="wireMeta" class="wire-meta">No calls yet</p>
+      </div>
+      <div class="wire-grid">
+        <div class="wire-col">
+          <div class="wire-col-label request">Request</div>
+          <pre id="reqPane" class="wire-pane">—</pre>
+        </div>
+        <div class="wire-col">
+          <div class="wire-col-label response">Response</div>
+          <pre id="resPane" class="wire-pane">—</pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="matrix-panel" aria-label="Iteration results matrix">
+      <div class="wire-head">
+        <h3>Iteration matrix</h3>
+        <p class="wire-meta">Rows = request · Columns = iteration · Cells = pass/fail · tiers escalate only after pass</p>
+      </div>
+      <div class="matrix-scroll">
+        <table id="iterMatrix" class="iter-matrix">
+          <thead>
+            <tr>
+              <th scope="col">Sent</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="matrix-empty">
+              <td colspan="1">Waiting for probes…</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="code-panel" aria-label="Subject and patch">
+      <div class="code-grid">
+        <div>
+          <div class="wire-col-label">Subject under test</div>
+          <pre id="subjectPane" class="wire-pane code">—</pre>
+        </div>
+        <div>
+          <div class="wire-col-label">Blue patch diff</div>
+          <pre id="diffPane" class="wire-pane code">—</pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="greenBanner" class="green-banner" hidden>
+      <div class="green-inner">
+        <p class="green-kicker">Exit condition</p>
+        <h2>GREEN — Fixed</h2>
+        <p id="greenDetail">
+          Hardening check passed. Loop stopped.
+        </p>
+      </div>
+    </section>
+
+    <section class="log-panel">
+      <h3>Loop trace</h3>
+      <ol id="eventLog" class="event-log"></ol>
+    </section>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
