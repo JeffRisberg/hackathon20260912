@@ -374,6 +374,35 @@ def diff_rows(before: str | None, after: str) -> list[dict]:
     return rows
 
 
+def _snippet(text: str) -> str:
+    cleaned = " ".join((text or "").split())
+    if not cleaned:
+        return "(blank)"
+    return cleaned if len(cleaned) <= 96 else cleaned[:93] + "..."
+
+
+def summarize_changes(before: str | None, after: str, round_no: int | None = None) -> str:
+    if before is None:
+        return "Opened the live source."
+    rows = diff_rows(before, after)
+    added = [row for row in rows if row["kind"] == "add"]
+    deleted = [row for row in rows if row["kind"] == "del"]
+    prefix = f"Round {round_no}: " if round_no else ""
+    if not added and not deleted:
+        return f"{prefix}no line changes this turn."
+    bits = []
+    if deleted:
+        bits.append(f"{len(deleted)} line{'s' if len(deleted) != 1 else ''} removed")
+    if added:
+        bits.append(f"{len(added)} line{'s' if len(added) != 1 else ''} added")
+    lines = [f"{prefix}{', '.join(bits)}."]
+    for row in deleted[:2]:
+        lines.append(f"− L{row['n']}: {_snippet(row.get('text') or '')}")
+    for row in added[:2]:
+        lines.append(f"+ L{row['n']}: {_snippet(row.get('text') or '')}")
+    return "\n".join(lines)
+
+
 def file_payload(path: str, content: str, before: str | None = None, label: str = "", round_no: int | None = None) -> dict:
     event = {
         "type": "file",
@@ -381,6 +410,7 @@ def file_payload(path: str, content: str, before: str | None = None, label: str 
         "content": content,
         "changed": changed_lines(before, content) if before is not None else [],
         "diff": diff_rows(before, content),
+        "summary": summarize_changes(before, content, round_no),
         "label": label,
     }
     if round_no is not None:
