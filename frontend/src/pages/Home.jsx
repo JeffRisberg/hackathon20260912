@@ -9,6 +9,7 @@ function Home() {
 
   return (
     <div className="home page">
+      <img src="/logo_art.jpg" alt="Team logo" className="home-logo" />
       <h1>Hackathon Team</h1>
       <p>Welcome to our hackathon project! Here's our team:</p>
       <ul className="team-list">
