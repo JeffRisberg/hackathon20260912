@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { runRedAgent } from '../api'
+import { runBlueAgent, runRedAgent } from '../api'
 import './SecWeave.css'
 
 function cellLabel(status) {
@@ -44,38 +44,101 @@ function SecWeave() {
     setUi((prev) => ({
       ...prev,
       running: true,
-      activeRole: 'red',
-      flow: 'flow-up',
-      statusLine: 'Calling Red agent (port 8000)…',
-      redDetail: 'Running forwarded-agent lock bypass replay…',
+      isFixed: false,
+      greenVisible: false,
+      greenDetail: '',
+      activeRole: 'blue',
+      flow: 'flow-down',
+      statusLine: 'Calling Blue agent (port 8001) — fix first…',
+      blueDetail: 'Running hardened defense / fix analysis…',
+      redDetail: 'Waiting for Blue report…',
+      reqPane: 'POST /api/blue/run',
+      resPane: '…',
+      wireMeta: 'Blue agent /run',
+      subjectPane: 'HardenedSocketAgent (Blue subject)',
+      diffPane: '—',
     }))
-    appendLog('red', 'POST /run → agent_red')
+    appendLog('blue', 'POST /run → agent_blue (fix first)')
 
     try {
-      const result = await runRedAgent()
-      appendLog('red', result.reproduced ? 'Bypass reproduced' : 'Bypass not reproduced')
+      const blue = await runBlueAgent()
+      const blueContext = [
+        `attack_blocked=${blue.attack_blocked}`,
+        `blocking_reason=${blue.blocking_reason}`,
+        `log_pattern_detected=${blue.log_pattern_detected}`,
+        `recommendation=${blue.recommendation}`,
+        `narrative=${blue.narrative}`,
+      ].join('\n')
+
+      appendLog(
+        'blue',
+        blue.attack_blocked
+          ? `Attack blocked — ${blue.blocking_reason || 'ok'}`
+          : 'Attack not blocked',
+      )
+
+      setUi((prev) => ({
+        ...prev,
+        activeRole: 'red',
+        flow: 'flow-up',
+        statusLine: 'Blue done — handing fix report to Red for verify…',
+        blueDetail: blue.narrative,
+        redDetail: 'Verifying Blue fix against hardened subject…',
+        reqPane: JSON.stringify(
+          { blue_context: blueContext, expect_blocked: blue.attack_blocked },
+          null,
+          2,
+        ),
+        resPane: JSON.stringify(blue, null, 2),
+        wireMeta: 'Blue → Red handoff',
+        subjectPane: blue.attack_blocked
+          ? 'HardenedSocketAgent (Red verifying Blue fix)'
+          : 'MockSocketAgent (vulnerable — Blue did not block)',
+        diffPane: blue.recommendation || '—',
+      }))
+      appendLog('red', 'POST /run → agent_red (with Blue context)')
+
+      const red = await runRedAgent({
+        blueContext,
+        expectBlocked: blue.attack_blocked,
+      })
+
+      const fixed = blue.attack_blocked && !red.reproduced
+      appendLog(
+        'red',
+        red.reproduced ? 'Bypass still reproduced' : 'Bypass not reproduced',
+      )
+      if (fixed) appendLog('system', 'GREEN — Blue fix held under Red verify')
+
       setUi((prev) => ({
         ...prev,
         running: false,
         activeRole: null,
         flow: null,
-        statusLine: result.reproduced
-          ? 'Red agent run complete — bypass reproduced'
-          : 'Red agent run complete — bypass not reproduced',
-        redDetail: result.narrative,
-        resPane: JSON.stringify(result, null, 2),
-        wireMeta: 'Red agent /run response',
+        statusLine: fixed
+          ? 'Loop complete — GREEN (Blue fix held)'
+          : red.reproduced
+            ? 'Loop complete — Red still reproduced bypass'
+            : 'Loop complete — Red did not reproduce',
+        redDetail: red.narrative,
+        resPane: JSON.stringify({ blue, red }, null, 2),
+        resClass: fixed ? 'ok' : red.reproduced ? 'fail' : '',
+        wireMeta: 'Blue + Red /run responses',
+        isFixed: fixed,
+        greenVisible: fixed,
+        greenDetail: fixed
+          ? 'Blue blocked the attack; Red could not reproduce against the hardened subject.'
+          : '',
       }))
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      appendLog('system', `Red agent call failed: ${message}`)
+      appendLog('system', `Loop failed: ${message}`)
       setUi((prev) => ({
         ...prev,
         running: false,
         activeRole: null,
         flow: null,
-        statusLine: `Red agent call failed: ${message}`,
-        redDetail: 'Waiting',
+        statusLine: `Loop failed: ${message}`,
       }))
     }
   }
@@ -88,7 +151,7 @@ function SecWeave() {
 
       <header className="hero">
         <p className="tagline">
-          Progressive tests: simple first. Complex only after pass. Blue LLM fixes gaps.
+          Blue proposes the fix first; Red verifies the claimed defense against the subject.
         </p>
         <div className="cta-row">
           <button
@@ -111,7 +174,7 @@ function SecWeave() {
           <div className="agent-label">Red</div>
           <h2>Verify</h2>
           <p className="agent-job">
-            Calls <code>format_custom_rcpt</code> and records each response.
+            Replays the forwarded-agent lock bypass using Blue&apos;s report as context.
           </p>
           <p className="agent-detail">{ui.redDetail}</p>
         </section>
@@ -129,7 +192,7 @@ function SecWeave() {
           <div className="agent-label">Blue</div>
           <h2>Fix</h2>
           <p className="agent-job">
-            LLM proposes a CR/LF reject patch (Weave-traced). Falls back if no key.
+            Runs first: hardened defense + recommendation (Weave-traced), then hands off to Red.
           </p>
           <p className="agent-detail">{ui.blueDetail}</p>
         </section>

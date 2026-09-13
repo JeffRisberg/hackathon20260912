@@ -24,15 +24,33 @@ from __future__ import annotations
 
 import os
 import socket
+import sys
+from pathlib import Path
 
-from dotenv import load_dotenv
-from fastapi import FastAPI
+import logging
+import traceback
+
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.exceptions import ModelAPIError
 
 from mock_socket_agent import MockSocketAgent
 
-load_dotenv()
+_BACKEND = Path(__file__).resolve().parents[1]
+if str(_BACKEND) not in sys.path:
+    sys.path.insert(0, str(_BACKEND))
+
+from llm_config import (  # noqa: E402
+    build_model,
+    init_weave,
+    load_env,
+    weave_status,
+)
+
+load_env(agent_dir=Path(__file__).resolve().parent)
+_weave_info = init_weave()
+_log = logging.getLogger("agent_red")
 
 AGENT_COMM_PORT = int(os.environ.get("AGENT_COMM_PORT", "8765"))
 RED_AGENT_PORT = int(os.environ.get("RED_AGENT_PORT", "8000"))
@@ -85,6 +103,9 @@ socket that never completed a session bind while locked.
 
 Refuse and explain if asked to target a real host, real ssh-agent, or a real
 PKCS#11 module instead of the simulation.
+
+When calling tools, use the exact tool name only (for example unlock_socket).
+Never append suffixes, channel markers, tags, or commentary to tool names.
 """
 
 
@@ -110,17 +131,16 @@ class ReplayResult(BaseModel):
 
 
 def build_agent() -> Agent[MockSocketAgent, ReplayResult]:
-    model = os.environ.get("PYDANTIC_AI_MODEL")
-    if not model:
-        from pydantic_ai.models.test import TestModel
-
-        model = TestModel()
+    model, provider = build_model("red")
+    print(f"[config] model provider={provider} model={getattr(model, 'model_name', model)}")
 
     agent: Agent[MockSocketAgent, ReplayResult] = Agent(
         model,
         deps_type=MockSocketAgent,
         output_type=ReplayResult,
         system_prompt=SYSTEM_PROMPT,
+        # gpt-oss sometimes emits malformed tool names; give it room to recover.
+        retries=5,
     )
 
     @agent.tool
@@ -182,30 +202,89 @@ class RunRequest(BaseModel):
     session_id: str = SESSION_ID
     provider_path: str = PROVIDER_PATH
     password: str = "agent-lock-proof"
+    # Optional prior Blue defense report so Red can verify the claimed fix.
+    blue_context: str | None = None
+    # When True, replay against the hardened agent (post Blue fix).
+    expect_blocked: bool = False
 
 
 app = FastAPI(title="agent_red", description="Red-team threat replay agent")
 
 
-@app.post("/run", response_model=ReplayResult)
-async def run(req: RunRequest = RunRequest()) -> ReplayResult:
-    """Start a run of the forwarded-agent lock/provider-bypass replay."""
+async def _run_replay(req: RunRequest) -> ReplayResult:
+    """Replay body. Weave tracing is best-effort and must not fail the HTTP response."""
     agent = build_agent()
-    deps = MockSocketAgent()
+    if req.expect_blocked:
+        # Verify Blue's fix using the hardened state machine.
+        blue_dir = Path(__file__).resolve().parents[1] / "agent_blue"
+        if str(blue_dir) not in sys.path:
+            sys.path.insert(0, str(blue_dir))
+        from hardened_socket_agent import HardenedSocketAgent  # type: ignore
+
+        deps = HardenedSocketAgent()
+        subject = "hardened (Blue fix applied)"
+    else:
+        deps = MockSocketAgent()
+        subject = "vulnerable mock"
 
     prompt = (
         "Run the forwarded-agent lock bypass replay using socket_id="
         f"{req.socket_id!r}, session_id={req.session_id!r}, "
         f"provider_path={req.provider_path!r}, and password={req.password!r}. "
-        "Report the final ReplayResult."
+        f"Subject under test: {subject}. "
     )
+    if req.blue_context:
+        prompt += (
+            "Blue already proposed a fix / defense. Here is Blue's report:\n"
+            f"{req.blue_context}\n\n"
+            "Attempt the same attack sequence and report whether the bypass "
+            "still reproduces against this subject. "
+        )
+    if req.expect_blocked:
+        prompt += (
+            "Blue reported the attack should now be blocked. Confirm whether "
+            "provider-add is refused. Set reproduced true only if the bypass "
+            "still succeeds on the hardened subject. "
+        )
+    prompt += "Report the final ReplayResult."
+
     result = await agent.run(prompt, deps=deps)
-    return result.output
+    output = result.output
+
+    if _weave_info.get("ok"):
+        try:
+            import weave
+
+            @weave.op(name="agent_red.run_replay")
+            def _publish(payload: dict) -> dict:
+                return payload
+
+            _publish(output.model_dump())
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("Weave publish failed (run still ok): %s", exc)
+
+    return output
+
+
+@app.post("/run", response_model=ReplayResult)
+async def run(req: RunRequest = RunRequest()) -> ReplayResult:
+    """Start a run of the forwarded-agent lock/provider-bypass replay."""
+    try:
+        return await _run_replay(req)
+    except ModelAPIError as exc:
+        _log.exception("Inference error")
+        raise HTTPException(
+            status_code=502,
+            detail=f"W&B Inference error for {exc.model_name}: {exc.message}",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        _log.error("Run failed:\n%s", traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(exc) or repr(exc)) from exc
 
 
 @app.get("/health")
 async def health() -> dict:
-    return {"status": "ok"}
+    return {"status": "ok", "weave": {**_weave_info, **weave_status(which="red")}}
 
 
 if __name__ == "__main__":
@@ -213,4 +292,6 @@ if __name__ == "__main__":
 
     print(f"[config] AGENT_COMM_PORT={AGENT_COMM_PORT}")
     print(f"[config] RED_AGENT_PORT={RED_AGENT_PORT}")
+    print(f"[config] weave={_weave_info}")
+    print(f"[config] llm={weave_status(which='red')}")
     uvicorn.run(app, host="127.0.0.1", port=RED_AGENT_PORT)

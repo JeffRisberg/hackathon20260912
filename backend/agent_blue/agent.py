@@ -22,19 +22,33 @@ from __future__ import annotations
 
 import os
 import socket
+import sys
 import threading
 from datetime import datetime, timezone
 from enum import Enum
+from pathlib import Path
 
 import uvicorn
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
 from hardened_socket_agent import HardenedSocketAgent, detect_bypass_signature
 
-load_dotenv()
+_BACKEND = Path(__file__).resolve().parents[1]
+if str(_BACKEND) not in sys.path:
+    sys.path.insert(0, str(_BACKEND))
+
+from llm_config import (  # noqa: E402
+    build_model,
+    init_weave,
+    load_env,
+    maybe_weave_op,
+    weave_status,
+)
+
+load_env(agent_dir=Path(__file__).resolve().parent)
+_weave_info = init_weave()
 
 AGENT_COMM_PORT = int(os.environ.get("AGENT_COMM_PORT", "8765"))
 BLUE_AGENT_PORT = int(os.environ.get("BLUE_AGENT_PORT", "8001"))
@@ -118,8 +132,13 @@ class BlueAgent:
     """Bundles the pydantic_ai agent with its HardenedSocketAgent deps and
     the UDP listener that watches for agent_red's comm messages."""
 
-    def __init__(self, deps: HardenedSocketAgent) -> None:
+    def __init__(
+        self,
+        deps: HardenedSocketAgent,
+        agent: Agent[HardenedSocketAgent, DefenseReport],
+    ) -> None:
         self.deps = deps
+        self.agent = agent
         self.status = BlueAgentStatus.WAITING
         self.lastMessage: str | None = None
         self.executions: list[ExecutionRecord] = []
@@ -150,8 +169,9 @@ class BlueAgent:
                 print("Threat Resolved\n")
 
 
-def build_agent() -> BlueAgent:
-    model = os.environ.get("PYDANTIC_AI_MODEL")
+def build_pydantic_agent() -> Agent[HardenedSocketAgent, DefenseReport]:
+    model, provider = build_model("blue")
+    print(f"[config] model provider={provider} model={getattr(model, 'model_name', model)}")
 
     agent: Agent[HardenedSocketAgent, DefenseReport] = Agent(
         model,
@@ -160,23 +180,111 @@ def build_agent() -> BlueAgent:
         system_prompt=SYSTEM_PROMPT,
     )
 
+    @agent.tool
+    def lock_agent(ctx: RunContext[HardenedSocketAgent], password: str) -> str:
+        """Lock the hardened mock agent."""
+        ok = ctx.deps.lock(password)
+        return "locked" if ok else "already locked"
+
+    @agent.tool
+    def unlock_agent(ctx: RunContext[HardenedSocketAgent], password: str) -> str:
+        """Unlock the hardened mock agent."""
+        ok = ctx.deps.unlock(password)
+        return "unlocked" if ok else "unlock failed"
+
+    @agent.tool
+    def open_forwarded_socket(ctx: RunContext[HardenedSocketAgent], socket_id: str) -> str:
+        """Open a forwarded agent socket."""
+        ctx.deps.open_forwarded_socket(socket_id)
+        return f"opened forwarded socket {socket_id}"
+
+    @agent.tool
+    def attempt_session_bind(
+        ctx: RunContext[HardenedSocketAgent], socket_id: str, session_id: str
+    ) -> str:
+        """Attempt session-bind; hardened agent records the attempt even while locked."""
+        ok = ctx.deps.attempt_session_bind(socket_id, session_id)
+        return "bind recorded" if ok else "bind refused"
+
+    @agent.tool
+    def add_smartcard_provider(
+        ctx: RunContext[HardenedSocketAgent], socket_id: str, provider_path: str
+    ) -> dict:
+        """Attempt to add a PKCS#11 provider via the given socket."""
+        return ctx.deps.add_smartcard_provider(socket_id, provider_path)
+
+    @agent.tool
+    def detect_bypass(ctx: RunContext[HardenedSocketAgent], log_lines: list[str]) -> dict:
+        """Run the static log-pattern detector over the provided lines."""
+        return detect_bypass_signature(log_lines)
+
+    @agent.tool
+    def get_log(ctx: RunContext[HardenedSocketAgent]) -> list[str]:
+        """Return the simulated hardened-agent debug trace."""
+        return list(ctx.deps.log)
+
+    return agent
+
+
+def build_agent() -> BlueAgent:
     deps = HardenedSocketAgent()
-    return BlueAgent(deps)
+    agent = build_pydantic_agent()
+    return BlueAgent(deps, agent)
 
 
 blue_agent: BlueAgent | None = None
 
-app = FastAPI()
+app = FastAPI(title="agent_blue", description="Blue-team defense agent")
+
+
+class RunRequest(BaseModel):
+    socket_id: str = SOCKET_ID
+    session_id: str = SESSION_ID
+    provider_path: str = PROVIDER_PATH
+    password: str = "agent-lock-proof"
+
+
+@maybe_weave_op
+async def _run_defense(req: RunRequest) -> DefenseReport:
+    """Traced defense body — shows up in Weave under WEAVE_PROJECT."""
+    assert blue_agent is not None
+    blue_agent._record_execution(BlueAgentStatus.DEFENDING)
+    blue_agent.deps = HardenedSocketAgent()
+    prompt = (
+        "Defend against the forwarded-agent lock bypass using socket_id="
+        f"{req.socket_id!r}, session_id={req.session_id!r}, "
+        f"provider_path={req.provider_path!r}, and password={req.password!r}. "
+        f"Also run detect_bypass on this sample unpatched log: {SAMPLE_UNPATCHED_LOG!r}. "
+        "Report the final DefenseReport."
+    )
+    result = await blue_agent.agent.run(prompt, deps=blue_agent.deps)
+    blue_agent._record_execution(BlueAgentStatus.WAITING)
+    return result.output
+
+
+@app.post("/run", response_model=DefenseReport)
+async def run(req: RunRequest = RunRequest()) -> DefenseReport:
+    """Run the hardened defense replay (W&B Inference + Weave-traced)."""
+    return await _run_defense(req)
 
 
 @app.get("/status")
 def get_status() -> dict:
-    return {"status": blue_agent.status, "last_message": blue_agent.lastMessage}
+    return {
+        "status": blue_agent.status if blue_agent else "starting",
+        "last_message": blue_agent.lastMessage if blue_agent else None,
+        "weave": {**_weave_info, **weave_status(which="blue")},
+    }
+
+
+@app.get("/health")
+def health() -> dict:
+    return {"status": "ok", "weave": {**_weave_info, **weave_status(which="blue")}}
 
 
 @app.get("/executions")
 def get_executions() -> list[ExecutionRecord]:
-    return blue_agent.executions
+    return blue_agent.executions if blue_agent else []
 
 
 def main() -> None:
@@ -184,6 +292,8 @@ def main() -> None:
 
     print(f"[config] AGENT_COMM_PORT={AGENT_COMM_PORT}")
     print(f"[config] BLUE_AGENT_PORT={BLUE_AGENT_PORT}")
+    print(f"[config] weave={_weave_info}")
+    print(f"[config] llm={weave_status(which='blue')}")
 
     # agent_red/agent.py for information about the attack. The UDP listener
     # runs in the background so the FastAPI server can serve status in the
