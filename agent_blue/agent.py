@@ -4,7 +4,7 @@ bypass described in ../README.md.
 It combines two independent defenses and reports on both:
 
 1. Runtime fix -- replays the same attack sequence used in ../agent_sim
-   against HardenedSshAgent (hardened_agent.py) and confirms the
+   against HardenedSshAgent (hardened_socket_agent.py) and confirms the
    provider-add is now refused.
 2. Log-based detection -- runs detect_bypass_signature() over a raw debug
    log (e.g. the shape of ../evidence/stock-openssh-10.4p1.txt) to flag the
@@ -15,11 +15,11 @@ sockets, processes, or PKCS#11 modules, and no connection to a real target.
 
 Usage:
     pip install -r requirements.txt
-    python defender_agent.py                # offline demo (TestModel)
+    python agent.py                # offline demo (TestModel)
 
     # For a real model, put PYDANTIC_AI_MODEL and OPENAI_API_KEY in a .env
     # file (see README.md) and just run:
-    python defender_agent.py                # real model, narrated
+    python agent.py                # real model, narrated
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
-from hardened_agent import HardenedSshAgent, detect_bypass_signature
+from hardened_socket_agent import HardenedSocketAgent, detect_bypass_signature
 
 load_dotenv()
 
@@ -80,6 +80,8 @@ or real log files instead of the provided simulation and sample log.
 """
 
 
+# Collects the results of a full replay of the bypass sequence, including the
+# final narrative and the simulated debug trace.
 class DefenseReport(BaseModel):
     attack_blocked: bool = Field(
         description="True if the hardened runtime refused the provider-add on the forwarded socket."
@@ -95,68 +97,68 @@ class DefenseReport(BaseModel):
     log: list[str] = Field(description="Simulated hardened-agent debug trace, in order.")
 
 
-def build_agent() -> Agent[HardenedSshAgent, DefenseReport]:
+def build_agent() -> Agent[HardenedSocketAgent, DefenseReport]:
     model = os.environ.get("PYDANTIC_AI_MODEL")
     if not model:
         from pydantic_ai.models.test import TestModel
 
         model = TestModel()
 
-    agent: Agent[HardenedSshAgent, DefenseReport] = Agent(
+    agent: Agent[HardenedSocketAgent, DefenseReport] = Agent(
         model,
-        deps_type=HardenedSshAgent,
+        deps_type=HardenedSocketAgent,
         output_type=DefenseReport,
         system_prompt=SYSTEM_PROMPT,
     )
 
     @agent.tool
-    def lock_agent(ctx: RunContext[HardenedSshAgent], password: str) -> str:
+    def lock_agent(ctx: RunContext[HardenedSocketAgent], password: str) -> str:
         """Lock the hardened mock agent with the given password."""
-        print("[tool] lock_agent called")
+        print("[toolInvocation] lock_agent called")
         ok = ctx.deps.lock(password)
         return "locked" if ok else "already locked"
 
     @agent.tool
-    def unlock_agent(ctx: RunContext[HardenedSshAgent], password: str) -> str:
+    def unlock_agent(ctx: RunContext[HardenedSocketAgent], password: str) -> str:
         """Unlock the hardened mock agent with the given password."""
-        print("[tool] unlock_agent called")
+        print("[toolInvocation] unlock_agent called")
         ok = ctx.deps.unlock(password)
         return "unlocked" if ok else "unlock failed"
 
     @agent.tool
-    def open_forwarded_socket(ctx: RunContext[HardenedSshAgent], socket_id: str) -> str:
+    def open_forwarded_socket(ctx: RunContext[HardenedSocketAgent], socket_id: str) -> str:
         """Open a forwarded agent socket (models `ssh -A` creating the channel)."""
-        print("[tool] open_forwarded_socket called")
+        print("[toolInvocation] open_forwarded_socket called")
         ctx.deps.open_forwarded_socket(socket_id)
         return f"opened forwarded socket {socket_id}"
 
     @agent.tool
     def attempt_session_bind(
-        ctx: RunContext[HardenedSshAgent], socket_id: str, session_id: str
+        ctx: RunContext[HardenedSocketAgent], socket_id: str, session_id: str
     ) -> str:
         """Attempt session-bind@openssh.com on a socket. Recorded even while locked."""
-        print("[tool] attempt_session_bind called")
+        print("[toolInvocation] attempt_session_bind called")
         ok = ctx.deps.attempt_session_bind(socket_id, session_id)
         return "bind succeeded" if ok else "bind recorded but not verified (agent was locked)"
 
     @agent.tool
     def add_smartcard_provider(
-        ctx: RunContext[HardenedSshAgent], socket_id: str, provider_path: str
+        ctx: RunContext[HardenedSocketAgent], socket_id: str, provider_path: str
     ) -> dict:
         """Attempt to add a PKCS#11 provider via the given socket."""
-        print("[tool] add_smartcard_provider called")
+        print("[toolInvocation] add_smartcard_provider called")
         return ctx.deps.add_smartcard_provider(socket_id, provider_path)
 
     @agent.tool
-    def get_log(ctx: RunContext[HardenedSshAgent]) -> list[str]:
+    def get_log(ctx: RunContext[HardenedSocketAgent]) -> list[str]:
         """Return the simulated hardened-agent debug trace collected so far."""
-        print("[tool] get_log called")
+        print("[toolInvocation] get_log called")
         return list(ctx.deps.log)
 
     @agent.tool_plain
     def detect_bypass_signature_tool() -> dict:
         """Run the log-pattern detector against the bundled sample unpatched log."""
-        print("[tool] detect_bypass_signature_tool called")
+        print("[toolInvocation] detect_bypass_signature_tool called")
         return detect_bypass_signature(SAMPLE_UNPATCHED_LOG)
 
     return agent
@@ -164,7 +166,7 @@ def build_agent() -> Agent[HardenedSshAgent, DefenseReport]:
 
 def main() -> None:
     agent = build_agent()
-    deps = HardenedSshAgent()
+    deps = HardenedSocketAgent()
 
     prompt = (
         "Defend against the forwarded-agent lock bypass using socket_id="

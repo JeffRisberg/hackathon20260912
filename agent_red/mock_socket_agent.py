@@ -26,7 +26,7 @@ class ProtocolError(Exception):
     pass
 
 
-class MockSshAgent:
+class MockSocketAgent:
     """Reproduces the locked-gate-before-extension-dispatch ordering bug."""
 
     def __init__(self) -> None:

@@ -41,7 +41,7 @@ class SocketState:
         return not self.session_bind_succeeded
 
 
-class HardenedSshAgent:
+class HardenedSocketAgent:
     """Fixes the ordering bug: session-bind is processed regardless of lock
     state, so the per-socket marker is always recorded before any later
     unlock can be used to smuggle a provider-add through."""
