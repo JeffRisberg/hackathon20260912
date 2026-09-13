@@ -244,7 +244,7 @@ def focus_repo(repo: str, bug: str, files: list[dict] | None = None) -> FocusedR
     if not collected:
         text = (repo or "").strip()[:MAX_BRIEF_CHARS]
         return FocusedRepo(
-            summary="No source files were found, so the raw repository text will be used.",
+            summary="No source files were indexed. Using the repository brief.",
             brief=text or "(empty repository)",
             hits=[],
             scanned=0,
@@ -259,9 +259,9 @@ def focus_repo(repo: str, bug: str, files: list[dict] | None = None) -> FocusedR
     brief = _render_brief(collected, hits, bug, signals)
     names = [hit.path for hit in hits]
     if hits and hits[0].score > 0:
-        summary = "Focused on " + ", ".join(names) + " because they match the bug."
+        summary = "Scoped to " + ", ".join(names) + "."
     else:
-        summary = "No strong match, so the most likely source files were included: " + ", ".join(names)
+        summary = "Primary source candidates: " + ", ".join(names) + "."
     return FocusedRepo(
         summary=summary,
         brief=brief,

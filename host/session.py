@@ -7,8 +7,11 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
+from pathlib import Path
+
 from common.mission import (
     DEFAULT_DIFFICULTY,
+    DEFAULT_REPO,
     Mission,
     build_mission,
     mission_payload,
@@ -27,6 +30,7 @@ class LoopSession:
         self.done = False
         self.mission: dict[str, Any] | None = None
         self.mission_obj: Mission | None = None
+        self.repo = DEFAULT_REPO
         self.difficulty = DEFAULT_DIFFICULTY
         self.run_id = uuid.uuid4().hex[:8]
         self.cancel = asyncio.Event()
@@ -37,9 +41,9 @@ class LoopSession:
 
     def pick(self, exploit_id: str = "") -> dict[str, Any]:
         if self.running:
-            raise RuntimeError("Stop the current run before picking another exploit.")
+            raise RuntimeError("Halt the current engagement before selecting another finding.")
         self.run_id = uuid.uuid4().hex[:8]
-        mission = build_mission(difficulty=self.difficulty, exploit_id=exploit_id)
+        mission = build_mission(str(self.repo), difficulty=self.difficulty, exploit_id=exploit_id)
         self.mission_obj = mission
         self.mission = mission_payload(mission)
         self.events = [self._stamp(self.mission)]
@@ -47,9 +51,21 @@ class LoopSession:
         self.cancel = asyncio.Event()
         return self.mission
 
+    def set_repo(self, repo: Path) -> dict[str, Any]:
+        if self.running:
+            raise RuntimeError("Halt the current engagement before importing a new application.")
+        self.repo = repo
+        self.mission_obj = None
+        self.mission = None
+        self.events = []
+        self.done = False
+        self.run_id = uuid.uuid4().hex[:8]
+        self.cancel = asyncio.Event()
+        return {"repo": str(repo)}
+
     def set_difficulty(self, difficulty: str, keep_exploit: bool = False) -> dict[str, Any]:
         if self.running:
-            raise RuntimeError("Stop the current run before changing difficulty.")
+            raise RuntimeError("Halt the current engagement before changing security posture.")
         self.difficulty = normalize_difficulty(difficulty)
         if keep_exploit and self.mission_obj is not None:
             return self.pick(exploit_id=self.mission_obj.exploit_id)
@@ -57,7 +73,7 @@ class LoopSession:
 
     def start(self) -> dict[str, Any]:
         if self.running:
-            raise RuntimeError("The agents are already running.")
+            raise RuntimeError("An engagement is already in progress.")
         if self.mission_obj is None:
             self.pick()
         self.run_id = uuid.uuid4().hex[:8]
@@ -90,7 +106,7 @@ class LoopSession:
                     "type": "done",
                     "closed": False,
                     "aborted": True,
-                    "text": "Emergency stop. The agents were aborted.",
+                    "text": "Engagement halted.",
                 }
             )
             self.events.append(event)

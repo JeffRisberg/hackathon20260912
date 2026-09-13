@@ -10,6 +10,8 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
+from common.text import collapse_repeats
+
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -112,7 +114,7 @@ def _wandb(
             {"role": "user", "content": user},
         ],
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        "max_tokens": max(max_tokens, 2048),
     }
     last_error: Exception | None = None
     for attempt in range(3):
@@ -123,8 +125,10 @@ def _wandb(
             data = response.json()
             choice = (data.get("choices") or [{}])[0]
             message = choice.get("message") or {}
-            text = str(message.get("content") or "").strip()
-            return text or _fallback(system, user)
+            text = collapse_repeats(_message_text(message))
+            if text:
+                return text
+            raise RuntimeError("empty completion")
         except Exception as exc:
             last_error = exc
             if _is_transient(exc) and attempt < 2:
@@ -153,8 +157,10 @@ def _gemini(system: str, user: str, temperature: float = 0.7) -> str:
                     temperature=temperature,
                 ),
             )
-            text = (response.text or "").strip()
-            return text or _fallback(system, user)
+            text = collapse_repeats((response.text or "").strip())
+            if text:
+                return text
+            raise RuntimeError("empty completion")
         except Exception as exc:
             last_error = exc
             if _is_transient(exc) and attempt < 2:
@@ -182,8 +188,10 @@ def _cursor(system: str, user: str) -> str:
         )
         if getattr(result, "status", None) == "error":
             return _short_error("Claude", os.getenv("CURSOR_MODEL", "composer-2.5"), Exception("Cursor run failed"))
-        text = str(getattr(result, "result", "") or "").strip()
-        return text or _fallback(system, user)
+        text = collapse_repeats(str(getattr(result, "result", "") or "").strip())
+        if text:
+            return text
+        return _short_error("Claude", os.getenv("CURSOR_MODEL", "composer-2.5"), Exception("empty completion"))
     except Exception as exc:
         return _short_error("Claude", os.getenv("CURSOR_MODEL", "composer-2.5"), exc)
 
@@ -212,10 +220,12 @@ def _claude(system: str, user: str, temperature: float = 0.7, max_tokens: int = 
                 system=system,
                 messages=[{"role": "user", "content": user}],
             )
-            text = "".join(
-                block.text for block in response.content if getattr(block, "text", None)
-            ).strip()
-            return text or _fallback(system, user)
+            text = collapse_repeats(
+                "".join(block.text for block in response.content if getattr(block, "text", None)).strip()
+            )
+            if text:
+                return text
+            raise RuntimeError("empty completion")
         except Exception as exc:
             last_error = exc
             if _is_transient(exc) and attempt < 2:
@@ -225,39 +235,27 @@ def _claude(system: str, user: str, temperature: float = 0.7, max_tokens: int = 
     return _short_error("Claude", model, last_error or Exception("unknown"))
 
 
-def _topic(user: str) -> str:
-    for pattern in (
-        r"Research this topic:\s*(.+)",
-        r"research on\s+(.+):",
-        r"wrote this about\s+(.+?)\.",
-        r"briefing on\s+(.+?)\s+using",
-        r"Three live angles on\s+(.+):",
-    ):
-        match = re.search(pattern, user, re.I)
-        if match:
-            return match.group(1).splitlines()[0].strip()
-    return "this topic"
+def _message_text(message: dict) -> str:
+    content = message.get("content")
+    if isinstance(content, str) and content.strip():
+        return content.strip()
+    if isinstance(content, list):
+        bits: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                bits.append(part)
+            elif isinstance(part, dict):
+                bits.append(str(part.get("text") or part.get("content") or ""))
+        joined = "".join(bits).strip()
+        if joined:
+            return joined
+    for key in ("reasoning_content", "reasoning"):
+        value = message.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
 
 
 def _fallback(system: str, user: str) -> str:
-    topic = _topic(user)
-    hunter = "gemini" in system.lower() or "agent red" in system.lower()
-    if hunter and "conversation so far" not in user.lower():
-        return (
-            f"Okay, {topic} — I keep thinking the interesting part is who gets left "
-            f"behind when it speeds up. What do you see that I'm missing?"
-        )
-    if hunter:
-        return (
-            f"Fair. On {topic} I still think the bottleneck is measurement, not the "
-            f"idea itself. If we can't tell when a move worked, we just talk forever."
-        )
-    if "conversation so far" not in user.lower():
-        return (
-            f"I hear you on {topic}. I'd start with the constraint, not the hype. "
-            f"What's the one thing that actually slows people down?"
-        )
-    return (
-        f"Maybe. For {topic} I care more about the handoff than the hot take. "
-        f"If two sides can't finish the job, the conversation was just noise."
-    )
+    label = "Red" if "agent red" in system.lower() else "Blue"
+    return f"{label} could not complete a reply. Try Start again."

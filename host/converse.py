@@ -19,6 +19,7 @@ from common.patch import (
     parse_review,
     verify_exploit,
 )
+from common.text import collapse_repeats
 from host.select import focus_repo
 
 HUNTER_URL = "http://127.0.0.1:10020"
@@ -42,6 +43,7 @@ def _failed(text: str) -> bool:
         or lowered.startswith("claude could not")
         or lowered.startswith("red could not")
         or lowered.startswith("blue could not")
+        or "could not complete a reply" in lowered
     )
 
 
@@ -116,17 +118,17 @@ def _chat_text(
     verdict: str = "",
 ) -> str:
     if speaker == "claude":
-        return summary or raw
-    clean = (issues or "").strip()
+        return collapse_repeats(summary or raw)
+    clean = collapse_repeats(issues or "").strip()
     if verdict == "accept":
         if not clean or clean.lower() in {"none", "n/a", "nil"}:
             return "Closed. Offense can no longer reach this sink."
         return f"Closed. {clean}"
     if verdict == "reject":
-        return clean or raw
+        return clean or collapse_repeats(raw)
     if clean.lower() in {"none", "n/a", "nil"}:
         return "Review finished."
-    return clean or raw
+    return clean or collapse_repeats(raw)
 
 
 def _stopped(cancel: asyncio.Event | None) -> bool:
@@ -157,24 +159,23 @@ async def talk(
     yield {
         "type": "status",
         "text": (
-            f"{llm_status()}. Fresh run {run_id or 'new'}. "
-            f"Purple-team loop on {mission.title} ({mission.difficulty}). "
-            f"Red probes {mission.target_file}. Blue patches one hunk at a time. "
-            f"They stop when Red says closed and the host gate is clear."
+            f"Engagement {run_id or 'new'}. {mission.title} at {mission.difficulty} posture. "
+            f"Red Team is assessing {mission.target_file}. Blue Team remediates incrementally "
+            f"until the finding is closed and host verification passes."
         ),
     }
 
     focused = focus_repo(str(mission.repo), mission.bug, files)
     yield {
         "type": "focus",
-        "text": f"{focused.summary} Working only {mission.target_file}.",
+        "text": f"{focused.summary} Scope is limited to {mission.target_file}.",
         "files": focused.hits,
         "scanned": focused.scanned,
     }
 
     opened = live_file(mission.repo, mission.target_file)
     if opened:
-        yield file_payload(mission.target_file, opened, label="Opened the live file")
+        yield file_payload(mission.target_file, opened, label="Live source")
 
     hunter_card = await discover(HUNTER_URL)
     analyzer_card = await discover(ANALYZER_URL)
@@ -188,7 +189,7 @@ async def talk(
     finding = ""
     for round_no in range(1, MAX_ROUNDS + 1):
         if _stopped(cancel):
-            yield {"type": "done", "closed": False, "aborted": True, "text": "Emergency stop. The agents were aborted."}
+            yield {"type": "done", "closed": False, "aborted": True, "text": "Engagement halted."}
             return
         source = live_file(mission.repo, mission.target_file)
         if not source:
@@ -198,7 +199,7 @@ async def talk(
         gate = verify_exploit(mission.exploit_id, source)
         yield {"type": "typing", "from": "gemini"}
         if _stopped(cancel):
-            yield {"type": "done", "closed": False, "aborted": True, "text": "Emergency stop. The agents were aborted."}
+            yield {"type": "done", "closed": False, "aborted": True, "text": "Engagement halted."}
             return
         red_raw = await send_text(HUNTER_URL, _red_prompt(mission, source, last_summary, gate, run_id))
         if _failed(red_raw):
@@ -238,21 +239,21 @@ async def talk(
             yield {
                 "type": "done",
                 "closed": True,
-                "text": f"Purple-team loop closed. Red found no remaining path in {mission.target_file}.",
+                "text": f"Finding closed. No remaining path in {mission.target_file}.",
                 "path": str(mission.target_path),
             }
             return
 
         if review.verdict == "accept" and gate:
-            finding = "Host still sees the sink. Remaining: " + "; ".join(gate)
+            finding = "Host verification is still open. Remaining: " + "; ".join(gate)
 
         if await _pause(cancel):
-            yield {"type": "done", "closed": False, "aborted": True, "text": "Emergency stop. The agents were aborted."}
+            yield {"type": "done", "closed": False, "aborted": True, "text": "Engagement halted."}
             return
 
         yield {"type": "typing", "from": "claude"}
         if _stopped(cancel):
-            yield {"type": "done", "closed": False, "aborted": True, "text": "Emergency stop. The agents were aborted."}
+            yield {"type": "done", "closed": False, "aborted": True, "text": "Engagement halted."}
             return
         blue_raw = await send_text(ANALYZER_URL, _blue_prompt(mission, source, finding, run_id))
         if _failed(blue_raw):
@@ -268,7 +269,7 @@ async def talk(
                 applied.path or mission.target_file,
                 applied.after or live_file(mission.repo, mission.target_file),
                 before=applied.before,
-                label=f"Blue defended {applied.path or mission.target_file}",
+                label=f"Blue remediating {applied.path or mission.target_file}",
                 round_no=round_no,
             )
         yield {
@@ -298,15 +299,15 @@ async def talk(
             finding = applied.message
         if round_no < MAX_ROUNDS:
             if await _pause(cancel):
-                yield {"type": "done", "closed": False, "aborted": True, "text": "Emergency stop. The agents were aborted."}
+                yield {"type": "done", "closed": False, "aborted": True, "text": "Engagement halted."}
                 return
 
     yield {
         "type": "done",
         "closed": False,
         "text": (
-            f"Stopped after {MAX_ROUNDS} purple-team rounds without a clean close. "
-            f"Latest {mission.target_file} is still on disk."
+            f"Stopped after {MAX_ROUNDS} rounds without a verified close. "
+            f"{mission.target_file} remains the live target."
         ),
         "path": str(mission.target_path),
     }

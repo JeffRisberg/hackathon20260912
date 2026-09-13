@@ -7,6 +7,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from common.text import collapse_repeats
+
 ALLOWED_SUFFIXES = {".js", ".ts", ".jsx", ".tsx", ".py", ".php", ".ejs", ".hbs", ".dust", ".json"}
 BLOCKED_PARTS = {".git", "node_modules", "exploits", ".venv", "venv", ".fix-loop"}
 
@@ -79,7 +81,7 @@ class Check:
 
 
 def parse_patch(text: str) -> Patch:
-    body = _strip_fences(text or "")
+    body = collapse_repeats(_strip_fences(text or ""))
     status_match = STATUS_RE.search(body)
     summary_match = SUMMARY_RE.search(body)
     file_match = FILE_RE.search(body)
@@ -97,7 +99,7 @@ def parse_patch(text: str) -> Patch:
 
 
 def parse_review(text: str) -> Review:
-    body = _strip_fences(text or "")
+    body = collapse_repeats(_strip_fences(text or ""))
     verdict_match = VERDICT_RE.search(body)
     issues_match = ISSUES_RE.search(body)
     verdict = (verdict_match.group("value") if verdict_match else "").lower()
@@ -114,6 +116,8 @@ def parse_review(text: str) -> Review:
         else:
             verdict = "reject"
     issues = issues_match.group("value").strip() if issues_match else body.strip()
+    issues = re.split(r"\n(?=(?:VERDICT|STATUS|FILE|<<<<<<<)\b)", issues, maxsplit=1)[0].strip()
+    issues = collapse_repeats(issues)
     return Review(verdict=verdict, issues=issues, raw=body)
 
 

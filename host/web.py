@@ -13,17 +13,21 @@ from starlette.routing import Route
 from common.client import card_to_dict, discover
 from common.mission import DEFAULT_DIFFICULTY, DEFAULT_REPO, DIFFICULTIES, MAX_ROUNDS, normalize_difficulty
 from common.patch import check_payloads, live_file
-from common.restore import restore_dvwa
+from common.restore import import_repo_path, import_repo_zip, restore_dvwa
 from host.converse import ANALYZER_URL, HUNTER_URL
 from host.session import SESSION
 
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
 
+def _repo() -> Path:
+    return SESSION.repo if getattr(SESSION, "repo", None) is not None else DEFAULT_REPO
+
+
 def _state() -> dict:
     mission = SESSION.mission or {}
     return {
-        "repo": mission.get("repo") or str(DEFAULT_REPO),
+        "repo": str(_repo()),
         "bug": mission.get("bug") or "",
         "file": mission.get("file") or "",
         "title": mission.get("title") or "",
@@ -49,7 +53,7 @@ async def index(_request: Request) -> FileResponse:
 async def defaults(_request: Request) -> JSONResponse:
     state = _state()
     if state.get("file"):
-        state["content"] = live_file(DEFAULT_REPO, state["file"])
+        state["content"] = live_file(_repo(), state["file"])
     return JSONResponse(state)
 
 
@@ -80,7 +84,7 @@ async def pick(request: Request) -> JSONResponse:
         mission = SESSION.pick()
     except RuntimeError as exc:
         return JSONResponse({"error": str(exc), **_state()}, status_code=409)
-    source = live_file(DEFAULT_REPO, mission.get("file") or "")
+    source = live_file(_repo(), mission.get("file") or "")
     return JSONResponse({**_state(), **mission, "content": source})
 
 
@@ -91,7 +95,7 @@ async def difficulty(request: Request) -> JSONResponse:
     except RuntimeError as exc:
         return JSONResponse({"error": str(exc), **_state()}, status_code=409)
     path = result.get("file") if isinstance(result, dict) else ""
-    source = live_file(DEFAULT_REPO, path or "")
+    source = live_file(_repo(), path or "")
     payload = {**_state(), **(result if isinstance(result, dict) else {})}
     if source:
         payload["content"] = source
@@ -115,11 +119,11 @@ async def revert(_request: Request) -> JSONResponse:
     if SESSION.running:
         SESSION.abort()
     try:
-        restored = restore_dvwa()
+        restored = restore_dvwa(_repo())
     except OSError as exc:
         return JSONResponse({"error": str(exc), **_state()}, status_code=500)
     path = SESSION.mission.get("file") if SESSION.mission else f"vulnerabilities/exec/source/{SESSION.difficulty}.php"
-    source = live_file(DEFAULT_REPO, path)
+    source = live_file(_repo(), path)
     exploit_id = SESSION.mission.get("exploit_id") if SESSION.mission else ""
     return JSONResponse(
         {
@@ -128,7 +132,34 @@ async def revert(_request: Request) -> JSONResponse:
             "file": path,
             "content": source,
             "checks": check_payloads(exploit_id, source) if exploit_id and source else [],
-            "text": "DVWA restored to the stock snapshot.",
+            "text": "Application restored to the verified baseline.",
+        }
+    )
+
+
+async def import_repo(request: Request) -> JSONResponse:
+    if SESSION.running:
+        return JSONResponse(
+            {"error": "Halt the current engagement before importing a new application.", **_state()},
+            status_code=409,
+        )
+    ctype = request.headers.get("content-type", "")
+    try:
+        if "zip" in ctype or request.headers.get("x-filename", "").lower().endswith(".zip"):
+            name = request.headers.get("x-filename") or "dvwa.zip"
+            root = import_repo_zip(await request.body(), name)
+        else:
+            body = await _read_json(request)
+            root = import_repo_path(str(body.get("path") or ""))
+        SESSION.set_repo(root)
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        return JSONResponse({"error": str(exc), **_state()}, status_code=400)
+    except RuntimeError as exc:
+        return JSONResponse({"error": str(exc), **_state()}, status_code=409)
+    return JSONResponse(
+        {
+            **_state(),
+            "text": "Target application connected. Select a finding to begin.",
         }
     )
 
@@ -158,6 +189,7 @@ app = Starlette(
         Route("/api/start", start, methods=["POST"]),
         Route("/api/stop", stop, methods=["POST"]),
         Route("/api/revert", revert, methods=["POST"]),
+        Route("/api/import", import_repo, methods=["POST"]),
         Route("/api/talk", conversation),
     ]
 )

@@ -5,7 +5,7 @@ from __future__ import annotations
 from a2a.types import AgentSkill
 
 from common.executor import PromptAgentExecutor
-from common.llm import BLUE_MODEL, complete
+from common.llm import complete
 from common.server import build_card, serve
 
 HOST = "127.0.0.1"
@@ -37,6 +37,7 @@ replacement lines
 
 Use STATUS: revise when Red still found a path after your last write.
 Copy SEARCH from the unnumbered source. One hunk only.
+Write each field once. Stop after REPLACE. Do not repeat the hunk.
 """
 
 
@@ -48,7 +49,7 @@ def main() -> None:
     skill = AgentSkill(
         id="defend",
         name="Defend",
-        description="Blue defense: patches the path Red just named",
+        description="Applies a focused remediation to the path Red Team identified",
         input_modes=["text/plain"],
         output_modes=["text/plain"],
         tags=["defense", "blue", "purple-team", "patch"],
@@ -56,7 +57,7 @@ def main() -> None:
     )
     card = build_card(
         name="Blue",
-        description=f"W&B {BLUE_MODEL}. Agent Blue, defense. Patches the path Red still has.",
+        description="Defensive remediation. Hardens the path identified by Red Team.",
         url=URL,
         skill=skill,
     )

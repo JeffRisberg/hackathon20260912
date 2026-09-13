@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Purple-team loop</title>
+  <title>Purple Team Exercise</title>
   <style>
     :root {
       --bg: #11140f;
@@ -86,31 +86,48 @@
     #stop-btn { background: var(--stop); color: #fff7f5; }
     #revert-btn { background: #3a3220; color: var(--gemini); }
     button:disabled { opacity: 0.45; cursor: not-allowed; }
-    .difficulty {
+    .repo, .difficulty {
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 14px;
       padding: 14px 16px;
       margin: 0 0 18px;
     }
-    .difficulty header {
+    .repo header, .difficulty header {
       display: flex;
       justify-content: space-between;
       align-items: baseline;
       gap: 12px;
       margin-bottom: 10px;
     }
-    .difficulty label {
+    .repo label, .difficulty label {
       font-size: 0.72rem;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--muted);
     }
-    #difficulty-label {
+    #repo-label, #difficulty-label {
       color: var(--gemini);
       font-weight: 650;
-      text-transform: capitalize;
     }
+    #difficulty-label { text-transform: capitalize; }
+    .repo-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    #repo-path {
+      flex: 1 1 280px;
+      min-width: 0;
+      font: inherit;
+      color: var(--ink);
+      background: #0e120c;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px 12px;
+    }
+    #import-btn, #zip-btn { background: #2b3326; color: var(--ink); }
+    .repo-hint { color: var(--muted); font-size: 0.82rem; margin: 8px 0 0; line-height: 1.4; }
     #difficulty {
       width: 100%;
       accent-color: var(--gemini);
@@ -328,59 +345,74 @@
 </head>
 <body>
   <main>
-    <h1>Purple-team loop on one DVWA exploit</h1>
+    <h1>Purple Team Exercise</h1>
     <p class="lede">
-      Pick a still-open exploit. Use the slider to set DVWA security
-      (Low, Medium, High). Start only when you want the loop running.
-      Red probes that one sink. Blue patches only that path. The live editor
-      on the right is the real DVWA file. Emergency stop aborts. Revert
-      puts the stock files back.
+      Import a target application, select an open finding, and set the security
+      posture. Red Team maps the remaining attack path. Blue Team applies a
+      focused remediation. The workspace tracks live source as the engagement
+      proceeds. Halt at any time, or restore the verified baseline.
     </p>
     <section class="cards">
       <article class="card hunter">
-        <div class="who">Red :10020 · offense</div>
+        <div class="who">Red Team · Offensive assessment</div>
         <h2 id="hunter-name">Red</h2>
-        <p id="hunter-desc">Waiting for agent card…</p>
+        <p id="hunter-desc">Connecting…</p>
       </article>
       <article class="card analyzer">
-        <div class="who">Blue :10021 · defense</div>
+        <div class="who">Blue Team · Defensive remediation</div>
         <h2 id="analyzer-name">Blue</h2>
-        <p id="analyzer-desc">Waiting for agent card…</p>
+        <p id="analyzer-desc">Connecting…</p>
       </article>
+    </section>
+    <section class="repo">
+      <header>
+        <label for="repo-path">Target application</label>
+        <span id="repo-label">Sample DVWA</span>
+      </header>
+      <div class="repo-row">
+        <input id="repo-path" type="text" placeholder="Local path to DVWA" spellcheck="false" autocomplete="off" />
+        <button type="button" id="import-btn">Import</button>
+        <button type="button" id="zip-btn">Upload archive</button>
+        <input id="repo-zip" type="file" accept=".zip,application/zip" hidden />
+      </div>
+      <p class="repo-hint">
+        Connect a local DVWA checkout or upload an archive. Clear the field and
+        import to return to the sample application.
+      </p>
     </section>
     <section class="difficulty">
       <header>
-        <label for="difficulty">DVWA security</label>
+        <label for="difficulty">Security posture</label>
         <span id="difficulty-label">High</span>
       </header>
       <input id="difficulty" type="range" min="0" max="2" step="1" value="2" />
       <div class="ticks"><span>Low</span><span>Medium</span><span>High</span></div>
     </section>
     <section class="mission">
-      <label>This run</label>
-      <p id="mission-title">No exploit selected</p>
-      <p id="mission">Click Pick random exploit. Nothing calls an AI until you press Start.</p>
+      <label>Engagement</label>
+      <p id="mission-title">No finding selected</p>
+      <p id="mission">Select a finding to review the live source, then launch the exercise.</p>
     </section>
     <div class="controls">
-      <button type="button" id="pick-btn">Pick random exploit</button>
-      <button type="button" id="start-btn">Start</button>
-      <button type="button" id="stop-btn">Emergency stop</button>
-      <button type="button" id="revert-btn">Revert DVWA</button>
+      <button type="button" id="pick-btn">Select finding</button>
+      <button type="button" id="start-btn">Launch</button>
+      <button type="button" id="stop-btn">Halt</button>
+      <button type="button" id="revert-btn">Restore baseline</button>
     </div>
     <section class="workspace">
       <section id="log" class="log">
-        <p class="empty">Agents are idle. Pick an exploit to open its file.</p>
+        <p class="empty">Ready. Select a finding to open the target file.</p>
       </section>
       <aside class="editor" id="editor">
         <header>
-          <strong id="editor-path">No file open</strong>
-          <span id="editor-status">Waiting for a pick</span>
+          <strong id="editor-path">No file selected</strong>
+          <span id="editor-status">Awaiting target</span>
         </header>
-        <pre id="editor-code"><div class="code-line"><span class="nr"></span><span class="tx" style="color:#9aa48a">The live DVWA file will land here.</span></div></pre>
+        <pre id="editor-code"><div class="code-line"><span class="nr"></span><span class="tx" style="color:#9aa48a">Source appears here once a finding is selected.</span></div></pre>
         <section class="matrix" id="matrix">
           <header>
-            <strong>Round matrix</strong>
-            <span id="matrix-detail">Pick an exploit to load its checks.</span>
+            <strong>Verification matrix</strong>
+            <span id="matrix-detail">Select a finding to load verification checks.</span>
           </header>
           <div id="matrix-grid"></div>
           <div class="matrix-legend">
@@ -398,6 +430,10 @@
     const startBtn = document.getElementById("start-btn");
     const stopBtn = document.getElementById("stop-btn");
     const revertBtn = document.getElementById("revert-btn");
+    const importBtn = document.getElementById("import-btn");
+    const zipBtn = document.getElementById("zip-btn");
+    const repoPath = document.getElementById("repo-path");
+    const repoZip = document.getElementById("repo-zip");
     const difficultySlider = document.getElementById("difficulty");
     const difficultyLabel = document.getElementById("difficulty-label");
     const LEVELS = ["low", "medium", "high"];
@@ -432,7 +468,7 @@
       const p = document.createElement("p");
       p.id = "typing";
       p.className = "typing";
-      p.textContent = who === "gemini" ? "Red is probing…" : "Blue is writing a defense patch…";
+      p.textContent = who === "gemini" ? "Red Team is assessing…" : "Blue Team is preparing a remediation…";
       log.appendChild(p);
       p.scrollIntoView({ behavior: "smooth", block: "end" });
     }
@@ -505,14 +541,15 @@
 
     function showMission(event) {
       if (!event.title) {
-        document.getElementById("mission-title").textContent = "No exploit selected";
+        document.getElementById("mission-title").textContent = "No finding selected";
         document.getElementById("mission").textContent =
-          "Click Pick random exploit. Nothing calls an AI until you press Start.";
+          "Select a finding to review the live source, then launch the exercise.";
         return;
       }
       const level = event.difficulty ? ` · ${escapeHtml(event.difficulty)}` : "";
       document.getElementById("mission-title").innerHTML =
         `${escapeHtml(event.title)}${level} in <code>${escapeHtml(event.file || "")}</code>`;
+      if (event.repo) showRepo(event.repo);
       document.getElementById("mission").textContent = event.bug || event.text || "";
       if (event.difficulty) setDifficultyUI(event.difficulty);
       if (event.checks) resetMatrix(event);
@@ -523,19 +560,19 @@
       matrixState.cells = {};
       matrixState.selected = "";
       matrixState.rows = [
-        { id: "red-verdict", label: "Red verdict" },
+        { id: "red-verdict", label: "Red assessment" },
         ...(event.checks || []).map((item) => ({ id: item.id, label: item.label })),
-        { id: "blue-patch", label: "Blue patch" },
+        { id: "blue-patch", label: "Blue remediation" },
       ];
       (event.checks || []).forEach((item) => {
         matrixState.cells[`now:${item.id}`] = {
           status: item.ok ? "accept" : "reject",
-          detail: item.detail || (item.ok ? "Check holds on the current file." : "Check fails on the current file."),
+          detail: item.detail || (item.ok ? "Verification holds on the current file." : "Verification fails on the current file."),
         };
       });
       renderMatrix();
       document.getElementById("matrix-detail").textContent =
-        "Now is the current file. Click a box after each round.";
+        "Baseline is the current file. Select a cell after each round for detail.";
     }
 
     function applyMatrix(event) {
@@ -548,7 +585,7 @@
         const accepted = event.verdict === "accept";
         matrixState.cells[`${round}:red-verdict`] = {
           status: accepted ? "accept" : "reject",
-          detail: event.finding || (accepted ? "Red says this path is closed." : "Red still has a path."),
+          detail: event.finding || (accepted ? "Red Team reports this path is closed." : "Red Team still has a path."),
         };
       }
       (event.checks || []).forEach((item) => {
@@ -560,7 +597,7 @@
       if (event.patch_ok !== undefined && event.patch_ok !== null) {
         matrixState.cells[`${round}:blue-patch`] = {
           status: event.patch_ok ? "accept" : "reject",
-          detail: event.finding || (event.patch_ok ? "Patch applied." : "Patch did not apply."),
+          detail: event.finding || (event.patch_ok ? "Remediation applied." : "Remediation did not apply."),
         };
       }
       renderMatrix();
@@ -573,7 +610,7 @@
         return;
       }
       const rounds = Array.from({ length: matrixState.maxRounds }, (_, index) => index + 1);
-      const head = ["", "Now", ...rounds.map((round) => `R${round}`)]
+      const head = ["", "Base", ...rounds.map((round) => `R${round}`)]
         .map((label, index) => `<th class="${index === 0 ? "row-label" : ""}">${label}</th>`)
         .join("");
       const body = matrixState.rows.map((row) => {
@@ -600,7 +637,7 @@
       const cell = matrixState.cells[key];
       const [round, rowId] = String(key).split(":");
       const row = matrixState.rows.find((item) => item.id === rowId);
-      const when = round === "now" ? "Now" : `Round ${round}`;
+      const when = round === "now" ? "Baseline" : `Round ${round}`;
       const status = cell ? (cell.status === "accept" ? "accepted" : "rejected") : "pending";
       document.getElementById("matrix-detail").textContent = cell
         ? `${when} · ${row ? row.label : rowId} · ${status}. ${cell.detail}`
@@ -618,11 +655,24 @@
       difficultyLabel.textContent = (LEVELS[difficultySlider.value] || "high");
     }
 
+    function showRepo(path) {
+      const label = document.getElementById("repo-label");
+      if (!path) {
+        label.textContent = "Sample DVWA";
+        return;
+      }
+      label.textContent = path;
+      if (repoPath && !repoPath.value) repoPath.value = path;
+    }
+
     function setButtons() {
       pickBtn.disabled = running;
       startBtn.disabled = running;
       stopBtn.disabled = !running;
       difficultySlider.disabled = running;
+      importBtn.disabled = running;
+      zipBtn.disabled = running;
+      repoPath.disabled = running;
     }
 
     function boring(text) {
@@ -669,10 +719,10 @@
         addNote(event.ok ? "patch ok" : "patch", event.text);
       } else if (event.type === "verdict") {
         const gate = event.gate && event.gate.length
-          ? ` Host gate still open: ${event.gate.join("; ")}`
-          : " Host gate is clear.";
-        const label = event.verdict === "accept" ? "CLOSED" : "STILL OPEN";
-        const detail = boring(event.text) ? "Offense can no longer reach this sink." : event.text;
+          ? ` Host verification still open: ${event.gate.join("; ")}`
+          : " Host verification is clear.";
+        const label = event.verdict === "accept" ? "Closed" : "Still open";
+        const detail = boring(event.text) ? "The offensive path is no longer reachable." : event.text;
         addNote(`verdict ${event.verdict}`, `${label}. ${detail}${gate}`);
       } else if (event.type === "done") {
         started = true;
@@ -701,9 +751,37 @@
     async function loadMission() {
       const res = await fetch("/api/defaults");
       const data = await res.json();
+      if (data.repo) showRepo(data.repo);
       if (data.difficulty) setDifficultyUI(data.difficulty);
       if (data.title) showMission(data);
       else if (data.checks) resetMatrix(data);
+    }
+
+    function clearWorkspace(note) {
+      seen.clear();
+      started = false;
+      running = false;
+      setButtons();
+      showMission({});
+      document.getElementById("editor-path").textContent = "No file selected";
+      document.getElementById("editor-status").textContent = "Awaiting target";
+      document.getElementById("editor-code").innerHTML =
+        `<div class="code-line"><span class="nr"></span><span class="tx" style="color:#9aa48a">Source appears here once a finding is selected.</span></div>`;
+      document.getElementById("matrix-grid").innerHTML = "";
+      document.getElementById("matrix-detail").textContent = "Select a finding to load verification checks.";
+      log.innerHTML = "";
+      if (note) addNote("closed", note);
+    }
+
+    async function handleImport(res) {
+      const data = await res.json();
+      if (!res.ok) {
+        addNote("empty", data.error || "Could not import the application.");
+        return;
+      }
+      showRepo(data.repo);
+      if (data.repo) repoPath.value = data.repo;
+      clearWorkspace(data.text || `Using ${data.repo}`);
     }
 
     function listen() {
@@ -731,23 +809,56 @@
       });
       const data = await res.json();
       if (!res.ok) {
-        addNote("empty", data.error || "Could not change difficulty.");
+        addNote("empty", data.error || "Could not update security posture.");
         if (data.difficulty) setDifficultyUI(data.difficulty);
         return;
       }
       setDifficultyUI(data.difficulty || currentDifficulty());
       if (data.title) {
         showMission(data);
-        log.innerHTML = `<p class="empty">Difficulty set to ${escapeHtml(data.difficulty)}. Press Start when you want the agents to talk.</p>`;
+        log.innerHTML = `<p class="empty">Security posture set to ${escapeHtml(data.difficulty)}. Launch when ready.</p>`;
       }
       if (data.content) {
         showFile({
           path: data.file,
           content: data.content,
-          label: `Opened ${data.difficulty} file`,
+          label: `${data.difficulty} source`,
         });
       }
       if (data.checks) resetMatrix(data);
+    });
+
+    importBtn.addEventListener("click", async () => {
+      const res = await fetch("/api/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: repoPath.value.trim() }),
+      });
+      await handleImport(res);
+    });
+
+    repoPath.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        importBtn.click();
+      }
+    });
+
+    zipBtn.addEventListener("click", () => repoZip.click());
+
+    repoZip.addEventListener("change", async () => {
+      const file = repoZip.files && repoZip.files[0];
+      repoZip.value = "";
+      if (!file) return;
+      const res = await fetch("/api/import", {
+        method: "POST",
+        headers: {
+          "Content-Type": file.type || "application/zip",
+          "X-Filename": file.name,
+        },
+        body: file,
+      });
+      await handleImport(res);
     });
 
     pickBtn.addEventListener("click", async () => {
@@ -758,18 +869,18 @@
       });
       const data = await res.json();
       if (!res.ok) {
-        addNote("empty", data.error || "Could not pick an exploit.");
+        addNote("empty", data.error || "Could not select a finding.");
         return;
       }
       seen.clear();
       started = false;
-      log.innerHTML = `<p class="empty">Exploit selected. Press Start when you want the agents to talk.</p>`;
+      log.innerHTML = `<p class="empty">Finding selected. Launch the exercise when ready.</p>`;
       showMission(data);
       if (data.content) {
         showFile({
           path: data.file,
           content: data.content,
-          label: "Opened for this exploit",
+          label: "Target source",
         });
       }
       if (data.checks) resetMatrix(data);
@@ -783,7 +894,7 @@
       const res = await fetch("/api/start", { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
-        addNote("empty", data.error || "Could not start the agents.");
+        addNote("empty", data.error || "Could not launch the exercise.");
         return;
       }
       running = true;
@@ -807,16 +918,16 @@
       seen.clear();
       started = false;
       if (!res.ok) {
-        addNote("empty", data.error || "Could not revert DVWA.");
+        addNote("empty", data.error || "Could not restore the baseline.");
         return;
       }
       log.innerHTML = "";
-      addNote("closed", data.text || "DVWA restored to the stock snapshot.");
+      addNote("closed", data.text || "Application restored to the verified baseline.");
       if (data.content) {
         showFile({
           path: data.file || `vulnerabilities/exec/source/${currentDifficulty()}.php`,
           content: data.content,
-          label: "Restored stock snapshot",
+          label: "Verified baseline",
         });
       }
       if (data.checks) resetMatrix(data);
@@ -826,7 +937,7 @@
     loadMission().catch(() => {});
     loadCards().catch(() => {
       document.getElementById("hunter-desc").textContent =
-        "Red is not up yet. Start the demo from the terminal.";
+        "Red Team is unavailable. Confirm the host is running.";
     });
   </script>
 </body>

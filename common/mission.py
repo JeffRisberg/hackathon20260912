@@ -126,6 +126,52 @@ def bug_for(spec: ExploitSpec, difficulty: str = DEFAULT_DIFFICULTY) -> str:
     return spec.bugs.get(level) or spec.bugs[DEFAULT_DIFFICULTY]
 
 
+def catalog_files(repo: Path) -> list[str]:
+    hits: list[str] = []
+    for spec in CATALOG:
+        for level in DIFFICULTIES:
+            rel = target_for(spec, level)
+            if (repo / rel).is_file():
+                hits.append(rel)
+    return hits
+
+
+def find_dvwa_root(path: Path) -> Path | None:
+    try:
+        path = path.expanduser().resolve()
+    except OSError:
+        return None
+    if not path.is_dir():
+        return None
+    if catalog_files(path):
+        return path
+    try:
+        children = sorted(
+            child
+            for child in path.iterdir()
+            if child.is_dir() and not child.name.startswith(".")
+        )
+    except OSError:
+        return None
+    hits = [child for child in children if catalog_files(child)]
+    if len(hits) == 1:
+        return hits[0]
+    nested: list[Path] = []
+    for child in children:
+        try:
+            grandkids = [
+                grand
+                for grand in child.iterdir()
+                if grand.is_dir() and not grand.name.startswith(".")
+            ]
+        except OSError:
+            continue
+        nested.extend(grand for grand in grandkids if catalog_files(grand))
+    if len(nested) == 1:
+        return nested[0]
+    return None
+
+
 def resolve_repo(repo: str) -> Path:
     lines = (repo or "").strip().splitlines()
     text = lines[0].strip() if lines else ""
@@ -135,12 +181,31 @@ def resolve_repo(repo: str) -> Path:
     if lowered.startswith("dvwa") or lowered in {"damn", "damn vulnerable"}:
         return DEFAULT_REPO
     path = Path(text).expanduser()
-    try:
-        if path.is_dir():
-            return path.resolve()
-    except OSError:
-        pass
-    return DEFAULT_REPO
+    if not path.is_absolute():
+        candidate = ROOT / path
+        if candidate.exists():
+            path = candidate
+    found = find_dvwa_root(path)
+    return found or DEFAULT_REPO
+
+
+def require_dvwa_root(repo: str) -> Path:
+    text = (repo or "").strip()
+    if not text:
+        return DEFAULT_REPO
+    path = Path(text).expanduser()
+    if not path.is_absolute():
+        candidate = ROOT / path
+        if candidate.exists():
+            path = candidate
+    if not path.exists():
+        raise FileNotFoundError(f"No such path: {path}")
+    found = find_dvwa_root(path)
+    if found is None:
+        raise ValueError(
+            "This folder is not a compatible DVWA application."
+        )
+    return found
 
 
 def pick_spec(
@@ -203,7 +268,7 @@ def mission_payload(mission: Mission) -> dict:
         "difficulty": mission.difficulty,
         "checks": check_payloads(mission.exploit_id, source) if source else [],
         "max_rounds": MAX_ROUNDS,
-        "text": f"Picked at random: {mission.title} ({mission.difficulty})",
+        "text": f"Selected: {mission.title} ({mission.difficulty})",
     }
 
 

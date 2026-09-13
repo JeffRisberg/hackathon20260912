@@ -5,7 +5,7 @@ from __future__ import annotations
 from a2a.types import AgentSkill
 
 from common.executor import PromptAgentExecutor
-from common.llm import RED_MODEL, complete
+from common.llm import complete
 from common.server import build_card, serve
 
 HOST = "127.0.0.1"
@@ -33,19 +33,20 @@ FINDING: the offensive path is gone and the feature still works
 
 This is a fresh conversation. Judge only the current file.
 
+Write VERDICT and FINDING once. Stop after FINDING. Do not repeat.
 Never reply with just the word none.
 """
 
 
 def respond(user_text: str) -> str:
-    return complete(SYSTEM, user_text, provider="gemini", temperature=0.4)
+    return complete(SYSTEM, user_text, provider="gemini", temperature=0.4, max_tokens=2048)
 
 
 def main() -> None:
     skill = AgentSkill(
         id="probe",
         name="Probe",
-        description="Red offense: says whether the chosen sink is still reachable",
+        description="Assesses whether the selected finding remains reachable",
         input_modes=["text/plain"],
         output_modes=["text/plain"],
         tags=["offense", "red", "purple-team"],
@@ -53,7 +54,7 @@ def main() -> None:
     )
     card = build_card(
         name="Red",
-        description=f"W&B {RED_MODEL}. Agent Red, offense. Re-probes the one chosen sink.",
+        description="Offensive assessment. Determines whether the selected finding remains open.",
         url=URL,
         skill=skill,
     )
