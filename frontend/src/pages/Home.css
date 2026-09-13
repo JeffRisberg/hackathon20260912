@@ -1,0 +1,29 @@
+.home {
+  --ink: #f4eefc;
+  --muted: #b9a8d4;
+  --line: rgba(244, 238, 252, 0.12);
+  --font-display: "Syne", sans-serif;
+  --font-body: "Instrument Sans", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: #000000;
+}
+
+.home h1 {
+  font-family: var(--font-display);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+
+.home p {
+  color: var(--muted);
+  font-family: var(--font-body);
+}
+
+.home .team-list li {
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+}

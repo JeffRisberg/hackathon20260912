@@ -1,3 +1,5 @@
+import './Home.css'
+
 function Home() {
   const team = [
     { name: 'Jeffrey Risberg', role: 'Team Member' },
@@ -6,7 +8,7 @@ function Home() {
   ]
 
   return (
-    <div className="page">
+    <div className="home page">
       <h1>Hackathon Team</h1>
       <p>Welcome to our hackathon project! Here's our team:</p>
       <ul className="team-list">
