@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Gemini talks to Claude</title>
+  <style>
+    :root {
+      --bg: #11140f;
+      --panel: #1a1f18;
+      --ink: #e8edd8;
+      --muted: #9aa48a;
+      --line: #2b3326;
+      --gemini: #e3b34d;
+      --claude: #7ec8b4;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+      background: radial-gradient(1200px 600px at 10% -10%, #24301f, var(--bg));
+      color: var(--ink);
+    }
+    main {
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 28px 16px 72px;
+    }
+    h1 {
+      font-size: 1.7rem;
+      font-weight: 650;
+      letter-spacing: -0.03em;
+      margin: 0 0 6px;
+    }
+    .lede { color: var(--muted); margin: 0 0 20px; line-height: 1.45; }
+    .cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 16px;
+    }
+    .card .who { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; }
+    .card.hunter .who { color: var(--gemini); }
+    .card.analyzer .who { color: var(--claude); }
+    .card h2 { margin: 4px 0 6px; font-size: 1.1rem; }
+    .card p { color: var(--muted); font-size: 0.9rem; margin: 0; }
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .drops {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .drop {
+      background: #0e120c;
+      border: 1px dashed var(--line);
+      border-radius: 14px;
+      padding: 12px;
+      min-height: 180px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      cursor: pointer;
+    }
+    .drop.over { border-color: var(--gemini); background: #161b12; }
+    .drop.has-file { border-style: solid; }
+    .drop label {
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .drop textarea {
+      flex: 1;
+      width: 100%;
+      min-height: 110px;
+      resize: vertical;
+      background: transparent;
+      color: var(--ink);
+      border: 0;
+      padding: 0;
+      font: inherit;
+      outline: none;
+    }
+    .drop .hint { color: var(--muted); font-size: 0.8rem; margin: 0; }
+    .drop .hint.error { color: #e3b34d; }
+    .drop .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .drop .actions button {
+      align-self: auto;
+      background: #2b3326;
+      color: var(--ink);
+      padding: 6px 10px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .drop.over textarea { pointer-events: none; }
+    .drop input[type="file"] { display: none; }
+    button {
+      font: inherit;
+      border-radius: 12px;
+      background: var(--gemini);
+      color: #1a1405;
+      border: 0;
+      padding: 12px 16px;
+      font-weight: 650;
+      cursor: pointer;
+      align-self: flex-end;
+    }
+    button:disabled { opacity: 0.5; cursor: wait; }
+    .log {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-height: 240px;
+    }
+    .row { display: flex; width: 100%; }
+    .row.gemini { justify-content: flex-start; }
+    .row.claude { justify-content: flex-end; }
+    .bubble {
+      max-width: min(78%, 520px);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 12px 14px;
+    }
+    .row.gemini .bubble { border-bottom-left-radius: 4px; }
+    .row.claude .bubble { border-bottom-right-radius: 4px; }
+    .name {
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      font-weight: 650;
+    }
+    .row.gemini .name { color: var(--gemini); }
+    .row.claude .name { color: var(--claude); }
+    .bubble pre {
+      white-space: pre-wrap;
+      margin: 0;
+      font-family: inherit;
+      line-height: 1.45;
+    }
+    .empty { color: var(--muted); margin: 0; }
+    .focus {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+    }
+    .focus p { margin: 0; color: var(--ink); }
+    .focus ul {
+      margin: 8px 0 0;
+      padding-left: 18px;
+      color: var(--muted);
+    }
+    .focus code { color: var(--claude); }
+    .typing {
+      color: var(--muted);
+      font-style: italic;
+      margin: 4px 2px 0;
+    }
+    @media (max-width: 720px) {
+      .cards, .drops { grid-template-columns: 1fr; }
+      .bubble { max-width: 90%; }
+      button { align-self: stretch; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Gemini talks to Claude</h1>
+    <p class="lede">
+      Drop a repository and a bug. The host finds the matching code first.
+      Claude proposes a fix. Gemini challenges it.
+    </p>
+    <section class="cards">
+      <article class="card hunter">
+        <div class="who">Gemini :10020</div>
+        <h2 id="hunter-name">Gemini</h2>
+        <p id="hunter-desc">Waiting for agent card…</p>
+      </article>
+      <article class="card analyzer">
+        <div class="who">Claude :10021</div>
+        <h2 id="analyzer-name">Claude</h2>
+        <p id="analyzer-desc">Waiting for agent card…</p>
+      </article>
+    </section>
+    <form id="form">
+      <div class="drops">
+        <div class="drop" id="repo-drop" data-box="repo">
+          <label for="repo">Repository</label>
+          <textarea id="repo" placeholder="Drop a folder, choose one, or paste a local path / GitHub URL"></textarea>
+          <p class="hint" id="repo-hint">Drop a folder, or use the buttons below</p>
+          <div class="actions">
+            <button type="button" id="repo-folder-btn">Choose folder</button>
+            <button type="button" id="repo-files-btn">Choose files</button>
+          </div>
+          <input id="repo-folder" type="file" webkitdirectory directory multiple />
+          <input id="repo-files" type="file" multiple />
+        </div>
+        <div class="drop" id="bug-drop" data-box="bug">
+          <label for="bug">Bug fix</label>
+          <textarea id="bug" placeholder="Drop a patch, file, or paste the bug and proposed fix"></textarea>
+          <p class="hint" id="bug-hint">Drop a file, or paste the bug / fix</p>
+          <div class="actions">
+            <button type="button" id="bug-files-btn">Choose file</button>
+          </div>
+          <input id="bug-files" type="file" multiple />
+        </div>
+      </div>
+      <button type="submit">Let them talk</button>
+    </form>
+    <section id="log" class="log">
+      <p class="empty">Drop a repo and a bug fix. Claude speaks first.</p>
+    </section>
+  </main>
+  <script>
+    const SKIP_DIRS = new Set([".git", "node_modules", ".venv", "venv", "__pycache__", "dist", "build", ".next", "target"]);
+    const SKIP_EXT = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".zip", ".woff", ".woff2", ".mp4", ".pyc", ".so", ".dylib", ".bin"]);
+    const MAX_FILES = 150;
+    const MAX_CHARS = 120000;
+    const MAX_FILE_BYTES = 200 * 1024;
+    const MAX_WALK = 600;
+
+    const log = document.getElementById("log");
+    const form = document.getElementById("form");
+    const repoInput = document.getElementById("repo");
+    const bugInput = document.getElementById("bug");
+    const button = form.querySelector("button[type='submit']");
+    let lastShown = 0;
+    let repoFiles = [];
+
+    function skipFile(name) {
+      const lower = name.toLowerCase();
+      const ext = lower.slice(lower.lastIndexOf("."));
+      return SKIP_EXT.has(ext) || [...SKIP_DIRS].some((dir) => lower.includes(`/${dir}/`) || lower.startsWith(`${dir}/`));
+    }
+
+    function looksBinary(text) {
+      return text.includes("\u0000");
+    }
+
+    function captureEntries(dt) {
+      const entries = [];
+      const items = dt && dt.items ? Array.from(dt.items) : [];
+      for (const item of items) {
+        if (item.kind !== "file") continue;
+        const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+        if (entry) entries.push(entry);
+      }
+      const files = dt && dt.files ? Array.from(dt.files) : [];
+      const text = (dt && dt.getData("text/plain") || "").trim();
+      return { entries, files, text };
+    }
+
+    async function readAllEntries(reader) {
+      const entries = [];
+      while (true) {
+        const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+        if (!batch.length) break;
+        entries.push(...batch);
+      }
+      return entries;
+    }
+
+    async function walkEntry(entry, prefix = "", acc = { seen: 0 }) {
+      const name = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (acc.seen >= MAX_WALK) return [];
+      if (entry.isDirectory) {
+        if (SKIP_DIRS.has(entry.name)) return [];
+        const children = await readAllEntries(entry.createReader());
+        const nested = [];
+        for (const child of children) {
+          if (acc.seen >= MAX_WALK) break;
+          nested.push(...await walkEntry(child, name, acc));
+        }
+        return nested;
+      }
+      acc.seen += 1;
+      if (skipFile(name)) return [];
+      const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+      return [{ name, file }];
+    }
+
+    async function filesFromCapture({ entries, files }) {
+      if (entries.length) {
+        const walked = [];
+        for (const entry of entries) {
+          walked.push(...await walkEntry(entry));
+        }
+        return walked;
+      }
+      return files.map((file) => ({
+        name: file.webkitRelativePath || file.name,
+        file,
+      }));
+    }
+
+    function folderLabel(files) {
+      const names = files.map((file) => file.name.replaceAll("\\", "/"));
+      const root = (names[0] || "repository").split("/")[0];
+      const sameRoot = names.every((name) => name === root || name.startsWith(`${root}/`));
+      const label = sameRoot ? root : "repository";
+      return `${label} (${files.length} source file${files.length === 1 ? "" : "s"})`;
+    }
+
+    async function readDroppedFiles(files) {
+      const picked = files.filter(({ name }) => !skipFile(name));
+      const kept = [];
+      let skipped = files.length - picked.length;
+      let truncated = false;
+      for (const { name, file } of picked) {
+        if (file.size > MAX_FILE_BYTES) {
+          skipped += 1;
+          continue;
+        }
+        let text = "";
+        try {
+          text = await file.text();
+        } catch {
+          skipped += 1;
+          continue;
+        }
+        if (!text.trim() || looksBinary(text)) {
+          skipped += 1;
+          continue;
+        }
+        if (kept.length >= MAX_FILES) {
+          truncated = true;
+          break;
+        }
+        kept.push({ name, content: text });
+      }
+      return {
+        files: kept,
+        text: kept.map((file) => `--- ${file.name} ---\n${file.content.trim()}\n`).join("\n").trim(),
+        added: kept.length,
+        skipped,
+        truncated,
+      };
+    }
+
+    function bindDrop(zone, textarea, hint, inputs, emptyHint, storeRepo) {
+      const apply = (result, fallbackText) => {
+        hint.classList.remove("error");
+        if (storeRepo) repoFiles = [];
+        if (result && result.files && result.files.length && storeRepo) {
+          repoFiles = result.files;
+          textarea.value = folderLabel(result.files);
+          zone.classList.add("has-file");
+          const extra = [];
+          if (result.skipped) extra.push(`skipped ${result.skipped}`);
+          if (result.truncated) extra.push("capped at 150 files");
+          hint.textContent = extra.length
+            ? `${result.added} files ready. The host will pick the ones that match the bug (${extra.join(", ")}).`
+            : `${result.added} files ready. The host will pick the ones that match the bug.`;
+          return;
+        }
+        if (result && result.text) {
+          textarea.value = result.text;
+          zone.classList.add("has-file");
+          const extra = [];
+          if (result.skipped) extra.push(`skipped ${result.skipped}`);
+          if (result.truncated) extra.push("truncated");
+          hint.textContent = extra.length
+            ? `${result.added} file${result.added === 1 ? "" : "s"} added (${extra.join(", ")})`
+            : `${result.added} file${result.added === 1 ? "" : "s"} added`;
+          return;
+        }
+        if (fallbackText) {
+          textarea.value = fallbackText;
+          zone.classList.add("has-file");
+          hint.textContent = "Using pasted path or text";
+          return;
+        }
+        hint.classList.add("error");
+        hint.textContent = "Nothing readable there. Try a source folder, or paste the local path.";
+      };
+
+      const loadList = async (list) => {
+        hint.classList.remove("error");
+        hint.textContent = "Reading files…";
+        const files = [...list].map((file) => ({
+          name: file.webkitRelativePath || file.name,
+          file,
+        }));
+        apply(await readDroppedFiles(files));
+      };
+
+      zone.addEventListener("dragenter", (event) => {
+        event.preventDefault();
+        zone.classList.add("over");
+      });
+      zone.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+        zone.classList.add("over");
+      });
+      zone.addEventListener("dragleave", (event) => {
+        if (zone.contains(event.relatedTarget)) return;
+        zone.classList.remove("over");
+      });
+      zone.addEventListener("drop", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        zone.classList.remove("over");
+        const captured = captureEntries(event.dataTransfer);
+        hint.classList.remove("error");
+        hint.textContent = "Reading folder…";
+        try {
+          const files = await filesFromCapture(captured);
+          apply(await readDroppedFiles(files), captured.text);
+        } catch (err) {
+          hint.classList.add("error");
+          hint.textContent = "Could not read that drop. Paste the local folder path instead.";
+          console.error(err);
+        }
+      });
+
+      Object.entries(inputs).forEach(([key, input]) => {
+        if (!input) return;
+        const trigger = document.getElementById(`${zone.dataset.box}-${key}-btn`);
+        trigger?.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          input.click();
+        });
+        input.addEventListener("change", async () => {
+          if (input.files?.length) await loadList(input.files);
+          input.value = "";
+        });
+      });
+
+      textarea.addEventListener("input", () => {
+        if (storeRepo) repoFiles = [];
+        zone.classList.toggle("has-file", Boolean(textarea.value.trim()));
+        hint.classList.remove("error");
+        if (!textarea.value.trim()) hint.textContent = emptyHint;
+      });
+    }
+
+    ["dragenter", "dragover", "drop"].forEach((type) => {
+      document.addEventListener(type, (event) => {
+        if (event.dataTransfer?.types?.contains?.("Files") || [...(event.dataTransfer?.types || [])].includes("Files")) {
+          event.preventDefault();
+        }
+      });
+    });
+
+    bindDrop(
+      document.getElementById("repo-drop"),
+      repoInput,
+      document.getElementById("repo-hint"),
+      {
+        folder: document.getElementById("repo-folder"),
+        files: document.getElementById("repo-files"),
+      },
+      "Drop a folder, or use the buttons below",
+      true
+    );
+    bindDrop(
+      document.getElementById("bug-drop"),
+      bugInput,
+      document.getElementById("bug-hint"),
+      { files: document.getElementById("bug-files") },
+      "Drop a file, or paste the bug / fix"
+    );
+
+    async function loadCards() {
+      const res = await fetch("/api/cards");
+      const data = await res.json();
+      document.getElementById("hunter-name").textContent = data.hunter.name;
+      document.getElementById("hunter-desc").textContent = data.hunter.description;
+      document.getElementById("analyzer-name").textContent = data.analyzer.name;
+      document.getElementById("analyzer-desc").textContent = data.analyzer.description;
+    }
+
+    function removeTyping() {
+      document.getElementById("typing")?.remove();
+    }
+
+    function showTyping(who) {
+      removeTyping();
+      const p = document.createElement("p");
+      p.id = "typing";
+      p.className = "typing";
+      p.textContent = who === "gemini" ? "Gemini is typing…" : "Claude is typing…";
+      log.appendChild(p);
+      p.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (ch) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      }[ch]));
+    }
+
+    function addFocus(event) {
+      const box = document.createElement("article");
+      box.className = "focus";
+      const files = event.files || [];
+      const items = files
+        .map((file) => {
+          const why = (file.why || []).join(", ");
+          return `<li><code>${escapeHtml(file.path)}:${escapeHtml(file.lines)}</code>${why ? ` — ${escapeHtml(why)}` : ""}</li>`;
+        })
+        .join("");
+      box.innerHTML = `<p>${escapeHtml(event.text)}</p>${items ? `<ul>${items}</ul>` : ""}`;
+      log.appendChild(box);
+      box.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+
+    function addChat(event) {
+      removeTyping();
+      const row = document.createElement("div");
+      row.className = `row ${event.from}`;
+      const who = event.from === "gemini" ? "Gemini" : "Claude";
+      row.innerHTML = `<article class="bubble ${event.from}"><div class="name">${who}</div><pre></pre></article>`;
+      row.querySelector("pre").textContent = event.text;
+      log.appendChild(row);
+      row.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+
+    async function showChat(event) {
+      const wait = Math.max(0, 2000 - (Date.now() - lastShown));
+      if (lastShown && wait) await new Promise((r) => setTimeout(r, wait));
+      addChat(event);
+      lastShown = Date.now();
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const repo = repoInput.value.trim();
+      const bug = bugInput.value.trim();
+      if ((!repo && !repoFiles.length) || !bug) {
+        log.innerHTML = `<p class="empty">Drop or paste both a repository and a bug fix.</p>`;
+        return;
+      }
+      log.innerHTML = "";
+      lastShown = 0;
+      button.disabled = true;
+      const res = await fetch("/api/talk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ repo, bug, files: repoFiles }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: "Could not start the conversation." }));
+        log.innerHTML = `<p class="empty">${data.error || "Could not start the conversation."}</p>`;
+        button.disabled = false;
+        return;
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop();
+        for (const part of parts) {
+          const line = part.replace(/^data: /, "");
+          if (!line) continue;
+          const event = JSON.parse(line);
+          if (event.type === "status") {
+            const p = document.createElement("p");
+            p.className = "empty";
+            p.textContent = event.text;
+            log.appendChild(p);
+          } else if (event.type === "focus") {
+            addFocus(event);
+          } else if (event.type === "typing") {
+            showTyping(event.from);
+          } else if (event.type === "chat") {
+            await showChat(event);
+          } else if (event.type === "error") {
+            removeTyping();
+            const p = document.createElement("p");
+            p.className = "empty";
+            p.textContent = event.text;
+            log.appendChild(p);
+          }
+        }
+      }
+      removeTyping();
+      button.disabled = false;
+    });
+
+    loadCards().catch(() => {
+      document.getElementById("hunter-desc").textContent =
+        "Gemini is not up yet. Start the demo from the terminal.";
+    });
+  </script>
+</body>
+</html>
