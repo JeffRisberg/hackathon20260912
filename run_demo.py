@@ -34,10 +34,10 @@ def main() -> None:
     hunter = subprocess.Popen([python, "-m", "agents.red"], cwd=ROOT)
     analyzer = subprocess.Popen([python, "-m", "agents.blue"], cwd=ROOT)
     try:
-        wait_for(HUNTER, "Gemini")
-        wait_for(ANALYZER, "Claude")
-        print("\nOpen http://127.0.0.1:8080")
-        print("Or run: uv run python -m host.converse --repo PATH --bug FIX\n")
+        wait_for(HUNTER, "Red")
+        wait_for(ANALYZER, "Blue")
+        print("\nAgents are idle. Open http://127.0.0.1:8080")
+        print("Pick an exploit, then Start the purple-team loop. Emergency stop aborts the run.\n")
         uvicorn.run("host.web:app", host="127.0.0.1", port=8080, log_level="info")
     finally:
         hunter.terminate()

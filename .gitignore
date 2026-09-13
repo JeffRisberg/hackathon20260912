@@ -13,6 +13,7 @@ env/
 # Node artifact files
 node_modules/
 dist/
+.fix-loop/
 
 # Python virtual environments
 venv/

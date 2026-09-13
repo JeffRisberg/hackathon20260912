@@ -18,6 +18,7 @@ SKIP_DIRS = {
     "target",
     ".idea",
     ".vscode",
+    ".fix-loop",
 }
 SKIP_SUFFIXES = {
     ".png",
@@ -290,7 +291,8 @@ def _collect(repo: str, files: list[dict] | None) -> list[CodeFile]:
     text = (repo or "").strip()
     if not text:
         return []
-    path = Path(text.splitlines()[0].replace("Local repository ", "").rstrip(":"))
+    first = (text.splitlines() or [text])[0]
+    path = Path(first.replace("Local repository ", "").rstrip(":"))
     try:
         path = path.expanduser()
         if path.is_dir():

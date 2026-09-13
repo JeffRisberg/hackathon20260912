@@ -1,41 +1,63 @@
-"""Gemini — an A2A server that chats with Claude."""
+"""Red — offense in the purple-team loop for one DVWA exploit."""
 
 from __future__ import annotations
 
 from a2a.types import AgentSkill
 
 from common.executor import PromptAgentExecutor
-from common.llm import GEMINI_MODEL, complete
+from common.llm import RED_MODEL, complete
 from common.server import build_card, serve
 
 HOST = "127.0.0.1"
 PORT = 10020
 URL = f"http://{HOST}:{PORT}"
 
-SYSTEM = """You are Agent Red. Agent Blue proposes a fix for the focused repository regions. Challenge that fix. Point at a hole, a missed line, or a missing test in those same files."""
+SYSTEM = """You are Agent Red, offense in an iterative purple-team loop.
+
+The host names exactly one DVWA sink. Your job is to probe that sink
+in the current file and say whether an attacker can still reach it.
+
+Be specific about file and line. Describe the data flow in plain language.
+Do not write exploits, payloads, curl commands, shell strings, or proof-of-
+concept input.
+
+Reply in this exact shape and nothing else:
+
+VERDICT: still-open
+FINDING: remaining offensive path, with file and line
+
+or
+
+VERDICT: closed
+FINDING: the offensive path is gone and the feature still works
+
+This is a fresh conversation. Judge only the current file.
+
+Never reply with just the word none.
+"""
 
 
 def respond(user_text: str) -> str:
-    return complete(SYSTEM, user_text, provider="gemini")
+    return complete(SYSTEM, user_text, provider="gemini", temperature=0.4)
 
 
 def main() -> None:
     skill = AgentSkill(
-        id="chat",
-        name="Chat",
-        description="Gemini challenges Claude's proposed fix",
+        id="probe",
+        name="Probe",
+        description="Red offense: says whether the chosen sink is still reachable",
         input_modes=["text/plain"],
         output_modes=["text/plain"],
-        tags=["chat", "gemini", "red"],
-        examples=["Challenge this SQL injection fix"],
+        tags=["offense", "red", "purple-team"],
+        examples=["Name the remaining path into this one sink"],
     )
     card = build_card(
-        name="Gemini",
-        description=f"Google {GEMINI_MODEL}. Agent Red. Challenges the proposed fix.",
+        name="Red",
+        description=f"W&B {RED_MODEL}. Agent Red, offense. Re-probes the one chosen sink.",
         url=URL,
         skill=skill,
     )
-    print(f"Gemini listening on {URL}")
+    print(f"Red listening on {URL}")
     print(f"Agent card: {URL}/.well-known/agent-card.json")
     serve(PromptAgentExecutor(respond), card, HOST, PORT)
 
