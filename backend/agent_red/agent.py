@@ -53,18 +53,22 @@ _weave_info = init_weave()
 _log = logging.getLogger("agent_red")
 
 AGENT_COMM_PORT = int(os.environ.get("AGENT_COMM_PORT", "8765"))
+FRONTEND_COMM_PORT = int(os.environ.get("FRONTEND_COMM_PORT", "8766"))
 RED_AGENT_PORT = int(os.environ.get("RED_AGENT_PORT", "8000"))
 
-# UDP socket to agent_blue: fire-and-forget so agent_red still runs standalone
-# (e.g. in tests) when nothing is listening on AGENT_COMM_PORT.
+# UDP socket to agent_blue and the Vite dev server: fire-and-forget so
+# agent_red still runs standalone (e.g. in tests) when nothing is listening
+# on AGENT_COMM_PORT / FRONTEND_COMM_PORT.
 _comm_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 
 def _send_comm(message: str) -> None:
-    try:
-        _comm_socket.sendto(message.encode(), ("127.0.0.1", AGENT_COMM_PORT))
-    except OSError:
-        pass
+    data = message.encode()
+    for port in (AGENT_COMM_PORT, FRONTEND_COMM_PORT):
+        try:
+            _comm_socket.sendto(data, ("127.0.0.1", port))
+        except OSError:
+            pass
 
 
 if os.environ.get("OBSERVABILITY_ENABLED", "false").strip().lower() in ("1", "true", "yes"):
