@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { runBlueAgent, runRedAgent } from '../api'
 import './SecWeave.css'
 
@@ -34,11 +34,32 @@ function SecWeave() {
 
   const matrixRef = useRef({ rows: [], iters: [], cells: {}, activeCell: null })
   const logKeyRef = useRef(0)
+  const commMessagesRef = useRef([])
 
   function appendLog(role, text) {
     logKeyRef.current += 1
     setEventLog((prev) => [{ id: logKeyRef.current, role, text }, ...prev])
   }
+
+  useEffect(() => {
+    console.log(logKeyRef.current)
+
+    if (!import.meta.hot) return
+
+    function handleCommMessage({ text }) {
+      commMessagesRef.current =
+        text === 'socket locked' ? [text] : [...commMessagesRef.current, text]
+      console.log('agent-comm-message', text, commMessagesRef.current)
+      setUi((prev) => ({
+        ...prev,
+        reqPane: commMessagesRef.current.join('\n'),
+        ...(text === 'socket locked' ? { resPane: '', blueDetail: 'Waiting' } : {}),
+      }))
+    }
+
+    import.meta.hot.on('agent-comm-message', handleCommMessage)
+    return () => import.meta.hot.off('agent-comm-message', handleCommMessage)
+  }, [])
 
   async function startLoop() {
     setUi((prev) => ({
@@ -110,6 +131,8 @@ function SecWeave() {
       )
       if (fixed) appendLog('system', 'GREEN — Blue fix held under Red verify')
 
+      const { log: _blueLog, ...blueSummary } = blue
+
       setUi((prev) => ({
         ...prev,
         running: false,
@@ -121,7 +144,7 @@ function SecWeave() {
             ? 'Loop complete — Red still reproduced bypass'
             : 'Loop complete — Red did not reproduce',
         redDetail: red.narrative,
-        resPane: JSON.stringify({ blue, red }, null, 2),
+        resPane: JSON.stringify(blueSummary, null, 2),
         resClass: fixed ? 'ok' : red.reproduced ? 'fail' : '',
         wireMeta: 'Blue + Red /run responses',
         isFixed: fixed,
@@ -138,6 +161,7 @@ function SecWeave() {
         running: false,
         activeRole: null,
         flow: null,
+        blueDetail: 'Waiting',
         statusLine: `Loop failed: ${message}`,
       }))
     }
@@ -171,7 +195,7 @@ function SecWeave() {
 
       <main className="stage">
         <section id="redBox" className={`agent-box red${ui.activeRole === 'red' ? ' active' : ''}`} aria-label="Red verify agent">
-          <div className="agent-label">Red</div>
+          <div className="agent-label">Red Agent</div>
           <h2>Verify</h2>
           <p className="agent-job">
             Replays the forwarded-agent lock bypass using Blue&apos;s report as context.
@@ -189,7 +213,7 @@ function SecWeave() {
         </div>
 
         <section id="blueBox" className={`agent-box blue${ui.activeRole === 'blue' ? ' active' : ''}`} aria-label="Blue fix agent">
-          <div className="agent-label">Blue</div>
+          <div className="agent-label">Blue Agent</div>
           <h2>Fix</h2>
           <p className="agent-job">
             Runs first: hardened defense + recommendation (Weave-traced), then hands off to Red.
