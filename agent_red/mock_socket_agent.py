@@ -44,7 +44,7 @@ class MockSocketAgent:
             return False
         self._password = password
         self.locked = True
-        self._emit("agent locked")
+        self._emit("socket locked")
         return True
 
     def unlock(self, password: str) -> bool:
@@ -56,7 +56,7 @@ class MockSocketAgent:
             return False
         self.locked = False
         self._password = None
-        self._emit("agent unlocked")
+        self._emit("socket unlocked")
         return True
 
     def open_forwarded_socket(self, socket_id: str) -> SocketState:

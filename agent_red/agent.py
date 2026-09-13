@@ -66,11 +66,11 @@ bypass works, using the tools provided. Everything you touch is an in-memory
 mock -- there are no real sockets, processes, or PKCS#11 modules.
 
 Reproduce this exact sequence with the tools, in order, and do not skip steps:
-1. lock_agent
+1. lock_socket
 2. open_forwarded_socket
 3. attempt_session_bind on that forwarded socket (this must be refused while
    locked -- that refusal is the root cause of the bug)
-4. unlock_agent
+4. unlock_socket
 5. add_smartcard_provider on the same forwarded socket
 
 After running the sequence, call get_log to fetch the full simulated debug
@@ -119,27 +119,27 @@ def build_agent() -> Agent[MockSocketAgent, ReplayResult]:
     )
 
     @agent.tool
-    def lock_agent(ctx: RunContext[MockSocketAgent], password: str) -> str:
-        """Lock the mock agent with the given password."""
-        print("[toolInvocation] lock_agent")
-        _send_comm("lock_agent invoked")
+    def lock_socket(ctx: RunContext[MockSocketAgent], password: str) -> str:
+        """Lock the mock socket with the given password."""
+        print("[toolInvocation] lock_socket")
         ok = ctx.deps.lock(password)
+        _send_comm("socket locked")
         return "locked" if ok else "already locked"
 
     @agent.tool
-    def unlock_agent(ctx: RunContext[MockSocketAgent], password: str) -> str:
-        """Unlock the mock agent with the given password."""
-        print("[toolInvocation] unlock_agent")
-        _send_comm("unlock_agent invoked")
+    def unlock_socket(ctx: RunContext[MockSocketAgent], password: str) -> str:
+        """Unlock the mock socket with the given password."""
+        print("[toolInvocation] unlock_socket")
         ok = ctx.deps.unlock(password)
+        _send_comm("socket unlocked")
         return "unlocked" if ok else "unlock failed"
 
     @agent.tool
     def open_forwarded_socket(ctx: RunContext[MockSocketAgent], socket_id: str) -> str:
         """Open a forwarded agent socket (models `ssh -A` creating the channel)."""
         print("[toolInvocation] open_forwarded_socket")
-        _send_comm(f"open_forwarded_socket invoked socket_id={socket_id}")
         ctx.deps.open_forwarded_socket(socket_id)
+        _send_comm(f"forwarded_socket opened socket_id={socket_id}")
         return f"opened forwarded socket {socket_id}"
 
     @agent.tool
@@ -148,8 +148,9 @@ def build_agent() -> Agent[MockSocketAgent, ReplayResult]:
     ) -> str:
         """Attempt session-bind@openssh.com on a socket. Fails while locked."""
         print("[toolInvocation] attempt_session_bind")
-        _send_comm(f"attempt_session_bind invoked socket_id={socket_id}")
+
         ok = ctx.deps.attempt_session_bind(socket_id, session_id)
+        _send_comm(f"session_bind attempted socket_id={socket_id}")
         return "bind recorded" if ok else "bind refused (agent locked)"
 
     @agent.tool
@@ -158,8 +159,9 @@ def build_agent() -> Agent[MockSocketAgent, ReplayResult]:
     ) -> dict:
         """Attempt to add a PKCS#11 provider via the given socket."""
         print("[toolInvocation] add_smartcard_provider")
-        _send_comm(f"add_smartcard_provider invoked socket_id={socket_id}")
-        return ctx.deps.add_smartcard_provider(socket_id, provider_path)
+        x = ctx.deps.add_smartcard_provider(socket_id, provider_path)
+        _send_comm(f"smartcard_provider added socket_id={socket_id}")
+        return x
 
     @agent.tool
     def get_log(ctx: RunContext[MockSocketAgent]) -> list[str]:

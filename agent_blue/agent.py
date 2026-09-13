@@ -15,10 +15,6 @@ sockets, processes, or PKCS#11 modules, and no connection to a real target.
 
 Usage:
     pip install -r requirements.txt
-    python agent.py                # offline demo (TestModel)
-
-    # For a real model, put PYDANTIC_AI_MODEL and OPENAI_API_KEY in a .env
-    # file (see README.md) and just run:
     python agent.py                # real model, narrated
 """
 
@@ -26,7 +22,7 @@ from __future__ import annotations
 
 import os
 import socket
-import threading
+from enum import Enum
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
@@ -38,16 +34,6 @@ load_dotenv()
 
 AGENT_COMM_PORT = int(os.environ.get("AGENT_COMM_PORT", "8765"))
 
-
-def _listen_for_comm() -> None:
-    """Print every message agent_red sends to AGENT_COMM_PORT (runs as a daemon thread)."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(("127.0.0.1", AGENT_COMM_PORT))
-    while True:
-        data, _ = sock.recvfrom(4096)
-        print(f"[agent_comm] {data.decode()}")
-
-
 SOCKET_ID = "fwd-0"
 SESSION_ID = "session-abc123"
 PROVIDER_PATH = "/usr/lib/x86_64-linux-gnu/pkcs11/p11-kit-trust.so"
@@ -57,11 +43,11 @@ PROVIDER_PATH = "/usr/lib/x86_64-linux-gnu/pkcs11/p11-kit-trust.so"
 # is run against this to show it flags the pattern independent of the
 # runtime fix.
 SAMPLE_UNPATCHED_LOG = [
-    "debug1: agent locked",
-    "debug1: process_message: socket 1 (fd=4) type 27",
-    "debug1: agent unlocked",
-    "debug1: process_message: socket 1 (fd=4) type 20",
-    "debug1: process_add_smartcard_key: add /usr/lib/x86_64-linux-gnu/pkcs11/p11-kit-trust.so",
+    "socket locked",
+    "process_message: socket 1 (fd=4) type 27",
+    "socket unlocked",
+    "process_message: socket 1 (fd=4) type 20",
+    "process_add_smartcard_key: add /usr/lib/x86_64-linux-gnu/pkcs11/p11-kit-trust.so",
 ]
 
 SYSTEM_PROMPT = """\
@@ -111,12 +97,41 @@ class DefenseReport(BaseModel):
     log: list[str] = Field(description="Simulated hardened-agent debug trace, in order.")
 
 
-def build_agent() -> Agent[HardenedSocketAgent, DefenseReport]:
-    model = os.environ.get("PYDANTIC_AI_MODEL")
-    if not model:
-        from pydantic_ai.models.test import TestModel
+class BlueAgentStatus(str, Enum):
+    WAITING = "waiting"
+    DEFENDING = "defending"
 
-        model = TestModel()
+
+class BlueAgent:
+    """Bundles the pydantic_ai agent with its HardenedSocketAgent deps and
+    the UDP listener that watches for agent_red's comm messages."""
+
+    def __init__(self, deps: HardenedSocketAgent) -> None:
+        self.deps = deps
+        self.status = BlueAgentStatus.WAITING
+        self.lastMessage: str | None = None
+
+    def listen_for_comm(self, port: int) -> None:
+        """Listen for messages from agent_red on `port`, print each one, and
+        switch to DEFENDING when a "socket locked" message is received.
+        Blocks forever."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind(("127.0.0.1", port))
+        while True:
+            data, _ = sock.recvfrom(4096)
+            message = data.decode()
+            print(f"[agent_comm] {message}")
+            self.lastMessage = message
+            if message == "socket locked":
+                self.status = BlueAgentStatus.DEFENDING
+                print("Threat Detected")
+            elif "smartcard_provider added" in message:
+                self.status = BlueAgentStatus.WAITING
+                print("Threat Resolved\n")
+
+
+def build_agent() -> BlueAgent:
+    model = os.environ.get("PYDANTIC_AI_MODEL")
 
     agent: Agent[HardenedSocketAgent, DefenseReport] = Agent(
         model,
@@ -125,80 +140,68 @@ def build_agent() -> Agent[HardenedSocketAgent, DefenseReport]:
         system_prompt=SYSTEM_PROMPT,
     )
 
-    @agent.tool
-    def lock_agent(ctx: RunContext[HardenedSocketAgent], password: str) -> str:
-        """Lock the hardened mock agent with the given password."""
-        print("[toolInvocation] lock_agent called")
-        ok = ctx.deps.lock(password)
-        return "locked" if ok else "already locked"
+    # @agent.tool
+    # def lock_agent(ctx: RunContext[HardenedSocketAgent], password: str) -> str:
+    #     """Lock the hardened mock agent with the given password."""
+    #     print("[toolInvocation] lock_agent called")
+    #     ok = ctx.deps.lock(password)
+    #     return "locked" if ok else "already locked"
+    #
+    # @agent.tool
+    # def unlock_agent(ctx: RunContext[HardenedSocketAgent], password: str) -> str:
+    #     """Unlock the hardened mock agent with the given password."""
+    #     print("[toolInvocation] unlock_agent called")
+    #     ok = ctx.deps.unlock(password)
+    #     return "unlocked" if ok else "unlock failed"
+    #
+    # @agent.tool
+    # def open_forwarded_socket(ctx: RunContext[HardenedSocketAgent], socket_id: str) -> str:
+    #     """Open a forwarded agent socket (models `ssh -A` creating the channel)."""
+    #     print("[toolInvocation] open_forwarded_socket called")
+    #     ctx.deps.open_forwarded_socket(socket_id)
+    #     return f"opened forwarded socket {socket_id}"
+    #
+    # @agent.tool
+    # def attempt_session_bind(
+    #     ctx: RunContext[HardenedSocketAgent], socket_id: str, session_id: str
+    # ) -> str:
+    #     """Attempt session-bind@openssh.com on a socket. Recorded even while locked."""
+    #     print("[toolInvocation] attempt_session_bind called")
+    #     ok = ctx.deps.attempt_session_bind(socket_id, session_id)
+    #     return "bind succeeded" if ok else "bind recorded but not verified (agent was locked)"
+    #
+    # @agent.tool
+    # def add_smartcard_provider(
+    #     ctx: RunContext[HardenedSocketAgent], socket_id: str, provider_path: str
+    # ) -> dict:
+    #     """Attempt to add a PKCS#11 provider via the given socket."""
+    #     print("[toolInvocation] add_smartcard_provider called")
+    #     return ctx.deps.add_smartcard_provider(socket_id, provider_path)
+    #
+    # @agent.tool
+    # def get_log(ctx: RunContext[HardenedSocketAgent]) -> list[str]:
+    #     """Return the simulated hardened-agent debug trace collected so far."""
+    #     print("[toolInvocation] get_log called")
+    #     return list(ctx.deps.log)
+    #
+    # @agent.tool_plain
+    # def detect_bypass_signature_tool() -> dict:
+    #     """Run the log-pattern detector against the bundled sample unpatched log."""
+    #     print("[toolInvocation] detect_bypass_signature_tool called")
+    #     return detect_bypass_signature(SAMPLE_UNPATCHED_LOG)
 
-    @agent.tool
-    def unlock_agent(ctx: RunContext[HardenedSocketAgent], password: str) -> str:
-        """Unlock the hardened mock agent with the given password."""
-        print("[toolInvocation] unlock_agent called")
-        ok = ctx.deps.unlock(password)
-        return "unlocked" if ok else "unlock failed"
-
-    @agent.tool
-    def open_forwarded_socket(ctx: RunContext[HardenedSocketAgent], socket_id: str) -> str:
-        """Open a forwarded agent socket (models `ssh -A` creating the channel)."""
-        print("[toolInvocation] open_forwarded_socket called")
-        ctx.deps.open_forwarded_socket(socket_id)
-        return f"opened forwarded socket {socket_id}"
-
-    @agent.tool
-    def attempt_session_bind(
-        ctx: RunContext[HardenedSocketAgent], socket_id: str, session_id: str
-    ) -> str:
-        """Attempt session-bind@openssh.com on a socket. Recorded even while locked."""
-        print("[toolInvocation] attempt_session_bind called")
-        ok = ctx.deps.attempt_session_bind(socket_id, session_id)
-        return "bind succeeded" if ok else "bind recorded but not verified (agent was locked)"
-
-    @agent.tool
-    def add_smartcard_provider(
-        ctx: RunContext[HardenedSocketAgent], socket_id: str, provider_path: str
-    ) -> dict:
-        """Attempt to add a PKCS#11 provider via the given socket."""
-        print("[toolInvocation] add_smartcard_provider called")
-        return ctx.deps.add_smartcard_provider(socket_id, provider_path)
-
-    @agent.tool
-    def get_log(ctx: RunContext[HardenedSocketAgent]) -> list[str]:
-        """Return the simulated hardened-agent debug trace collected so far."""
-        print("[toolInvocation] get_log called")
-        return list(ctx.deps.log)
-
-    @agent.tool_plain
-    def detect_bypass_signature_tool() -> dict:
-        """Run the log-pattern detector against the bundled sample unpatched log."""
-        print("[toolInvocation] detect_bypass_signature_tool called")
-        return detect_bypass_signature(SAMPLE_UNPATCHED_LOG)
-
-    return agent
+    deps = HardenedSocketAgent()
+    return BlueAgent(deps)
 
 
 def main() -> None:
     print(f"[config] AGENT_COMM_PORT={AGENT_COMM_PORT}")
 
-    # Tool-running replay (moved to a background thread previously) is
-    # disabled -- agent_blue now just runs an ongoing loop listening on the
-    # inbound socket. See agent_red/agent.py for the equivalent tools.
-    # threading.Thread(target=_listen_for_comm, daemon=True).start()
-    #
-    # agent = build_agent()
-    # deps = HardenedSocketAgent()
-    #
-    # prompt = (
-    #     "Defend against the forwarded-agent lock bypass using socket_id="
-    #     f"{SOCKET_ID!r}, session_id={SESSION_ID!r}, provider_path={PROVIDER_PATH!r}, "
-    #     "and password='agent-lock-proof'. Report the final DefenseReport."
-    # )
-    # result = agent.run_sync(prompt, deps=deps)
-    #
-    # print(result.output.model_dump_json(indent=2))
+    # agent_blue just runs an ongoing loop listening on the inbound socket.
+    # See agent_red/agent.py for information about the attack.
 
-    _listen_for_comm()
+    blue_agent = build_agent()
+    blue_agent.listen_for_comm(AGENT_COMM_PORT)
 
 
 if __name__ == "__main__":
