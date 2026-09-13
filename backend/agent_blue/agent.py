@@ -22,9 +22,13 @@ from __future__ import annotations
 
 import os
 import socket
+import threading
+from datetime import datetime, timezone
 from enum import Enum
 
+import uvicorn
 from dotenv import load_dotenv
+from fastapi import FastAPI
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
@@ -33,6 +37,7 @@ from hardened_socket_agent import HardenedSocketAgent, detect_bypass_signature
 load_dotenv()
 
 AGENT_COMM_PORT = int(os.environ.get("AGENT_COMM_PORT", "8765"))
+BLUE_AGENT_PORT = int(os.environ.get("BLUE_AGENT_PORT", "8001"))
 
 SOCKET_ID = "fwd-0"
 SESSION_ID = "session-abc123"
@@ -102,6 +107,13 @@ class BlueAgentStatus(str, Enum):
     DEFENDING = "defending"
 
 
+# One entry per status transition, recording when a defense run started
+# (DEFENDING) or finished (WAITING).
+class ExecutionRecord(BaseModel):
+    timestamp: datetime
+    status: BlueAgentStatus
+
+
 class BlueAgent:
     """Bundles the pydantic_ai agent with its HardenedSocketAgent deps and
     the UDP listener that watches for agent_red's comm messages."""
@@ -110,11 +122,19 @@ class BlueAgent:
         self.deps = deps
         self.status = BlueAgentStatus.WAITING
         self.lastMessage: str | None = None
+        self.executions: list[ExecutionRecord] = []
+
+    def _record_execution(self, status: BlueAgentStatus) -> None:
+        self.status = status
+        self.executions.append(
+            ExecutionRecord(timestamp=datetime.now(timezone.utc), status=status)
+        )
 
     def listen_for_comm(self, port: int) -> None:
         """Listen for messages from agent_red on `port`, print each one, and
         switch to DEFENDING when a "socket locked" message is received.
         Blocks forever."""
+        print("Listening on port {}".format(port))
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.bind(("127.0.0.1", port))
         while True:
@@ -123,10 +143,10 @@ class BlueAgent:
             print(f"[agent_comm] {message}")
             self.lastMessage = message
             if message == "socket locked":
-                self.status = BlueAgentStatus.DEFENDING
+                self._record_execution(BlueAgentStatus.DEFENDING)
                 print("Threat Detected")
             elif "smartcard_provider added" in message:
-                self.status = BlueAgentStatus.WAITING
+                self._record_execution(BlueAgentStatus.WAITING)
                 print("Threat Resolved\n")
 
 
@@ -140,68 +160,40 @@ def build_agent() -> BlueAgent:
         system_prompt=SYSTEM_PROMPT,
     )
 
-    # @agent.tool
-    # def lock_agent(ctx: RunContext[HardenedSocketAgent], password: str) -> str:
-    #     """Lock the hardened mock agent with the given password."""
-    #     print("[toolInvocation] lock_agent called")
-    #     ok = ctx.deps.lock(password)
-    #     return "locked" if ok else "already locked"
-    #
-    # @agent.tool
-    # def unlock_agent(ctx: RunContext[HardenedSocketAgent], password: str) -> str:
-    #     """Unlock the hardened mock agent with the given password."""
-    #     print("[toolInvocation] unlock_agent called")
-    #     ok = ctx.deps.unlock(password)
-    #     return "unlocked" if ok else "unlock failed"
-    #
-    # @agent.tool
-    # def open_forwarded_socket(ctx: RunContext[HardenedSocketAgent], socket_id: str) -> str:
-    #     """Open a forwarded agent socket (models `ssh -A` creating the channel)."""
-    #     print("[toolInvocation] open_forwarded_socket called")
-    #     ctx.deps.open_forwarded_socket(socket_id)
-    #     return f"opened forwarded socket {socket_id}"
-    #
-    # @agent.tool
-    # def attempt_session_bind(
-    #     ctx: RunContext[HardenedSocketAgent], socket_id: str, session_id: str
-    # ) -> str:
-    #     """Attempt session-bind@openssh.com on a socket. Recorded even while locked."""
-    #     print("[toolInvocation] attempt_session_bind called")
-    #     ok = ctx.deps.attempt_session_bind(socket_id, session_id)
-    #     return "bind succeeded" if ok else "bind recorded but not verified (agent was locked)"
-    #
-    # @agent.tool
-    # def add_smartcard_provider(
-    #     ctx: RunContext[HardenedSocketAgent], socket_id: str, provider_path: str
-    # ) -> dict:
-    #     """Attempt to add a PKCS#11 provider via the given socket."""
-    #     print("[toolInvocation] add_smartcard_provider called")
-    #     return ctx.deps.add_smartcard_provider(socket_id, provider_path)
-    #
-    # @agent.tool
-    # def get_log(ctx: RunContext[HardenedSocketAgent]) -> list[str]:
-    #     """Return the simulated hardened-agent debug trace collected so far."""
-    #     print("[toolInvocation] get_log called")
-    #     return list(ctx.deps.log)
-    #
-    # @agent.tool_plain
-    # def detect_bypass_signature_tool() -> dict:
-    #     """Run the log-pattern detector against the bundled sample unpatched log."""
-    #     print("[toolInvocation] detect_bypass_signature_tool called")
-    #     return detect_bypass_signature(SAMPLE_UNPATCHED_LOG)
-
     deps = HardenedSocketAgent()
     return BlueAgent(deps)
 
 
+blue_agent: BlueAgent | None = None
+
+app = FastAPI()
+
+
+@app.get("/status")
+def get_status() -> dict:
+    return {"status": blue_agent.status, "last_message": blue_agent.lastMessage}
+
+
+@app.get("/executions")
+def get_executions() -> list[ExecutionRecord]:
+    return blue_agent.executions
+
+
 def main() -> None:
+    global blue_agent
+
     print(f"[config] AGENT_COMM_PORT={AGENT_COMM_PORT}")
+    print(f"[config] BLUE_AGENT_PORT={BLUE_AGENT_PORT}")
 
-    # agent_blue just runs an ongoing loop listening on the inbound socket.
-    # See agent_red/agent.py for information about the attack.
-
+    # agent_red/agent.py for information about the attack. The UDP listener
+    # runs in the background so the FastAPI server can serve status in the
+    # foreground.
     blue_agent = build_agent()
-    blue_agent.listen_for_comm(AGENT_COMM_PORT)
+    threading.Thread(
+        target=blue_agent.listen_for_comm, args=(AGENT_COMM_PORT,), daemon=True
+    ).start()
+
+    uvicorn.run(app, host="127.0.0.1", port=BLUE_AGENT_PORT)
 
 
 if __name__ == "__main__":

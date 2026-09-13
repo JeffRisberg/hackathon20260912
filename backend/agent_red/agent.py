@@ -1,6 +1,6 @@
-"""PydanticAI agent that walks through the mock ssh-agent state machine
-(mock_socket_agent.py) to demonstrate the forwarded-agent lock/provider-bypass bug
-described in ../README.md.
+"""FastAPI server exposing a run of the PydanticAI agent that walks through
+the mock ssh-agent state machine (mock_socket_agent.py) to demonstrate the
+forwarded-agent lock/provider-bypass bug described in ../README.md.
 
 This is a teaching/demo tool: every "agent" and "socket" here is an in-process
 Python object. Nothing connects to a network, spawns ssh/ssh-agent/sshd, or
@@ -9,8 +9,11 @@ evidence about, systems you do not own or have permission to test -- for a
 real replay, use ../run.sh instead.
 
 Usage:
-    python agent.py                # offline demo, no API key needed (TestModel)
-    PYDANTIC_AI_MODEL=openai:gpt-4o-mini OPENAI_API_KEY=... python agent.py
+    python agent.py                # runs on RED_AGENT_PORT (default 8000)
+    uvicorn agent:app --reload --port "$RED_AGENT_PORT"
+
+    # offline demo, no API key needed (TestModel), then:
+    curl -X POST http://127.0.0.1:8000/run
 
 Configuration can also be supplied via a .env file in this directory
 (see .env.sample for the template); values already set in the environment
@@ -23,6 +26,7 @@ import os
 import socket
 
 from dotenv import load_dotenv
+from fastapi import FastAPI
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 
@@ -31,6 +35,7 @@ from mock_socket_agent import MockSocketAgent
 load_dotenv()
 
 AGENT_COMM_PORT = int(os.environ.get("AGENT_COMM_PORT", "8765"))
+RED_AGENT_PORT = int(os.environ.get("RED_AGENT_PORT", "8000"))
 
 # UDP socket to agent_blue: fire-and-forget so agent_red still runs standalone
 # (e.g. in tests) when nothing is listening on AGENT_COMM_PORT.
@@ -172,21 +177,40 @@ def build_agent() -> Agent[MockSocketAgent, ReplayResult]:
     return agent
 
 
-def main() -> None:
-    print(f"[config] AGENT_COMM_PORT={AGENT_COMM_PORT}")
+class RunRequest(BaseModel):
+    socket_id: str = SOCKET_ID
+    session_id: str = SESSION_ID
+    provider_path: str = PROVIDER_PATH
+    password: str = "agent-lock-proof"
 
+
+app = FastAPI(title="agent_red", description="Red-team threat replay agent")
+
+
+@app.post("/run", response_model=ReplayResult)
+async def run(req: RunRequest = RunRequest()) -> ReplayResult:
+    """Start a run of the forwarded-agent lock/provider-bypass replay."""
     agent = build_agent()
     deps = MockSocketAgent()
 
     prompt = (
         "Run the forwarded-agent lock bypass replay using socket_id="
-        f"{SOCKET_ID!r}, session_id={SESSION_ID!r}, provider_path={PROVIDER_PATH!r}, "
-        "and password='agent-lock-proof'. Report the final ReplayResult."
+        f"{req.socket_id!r}, session_id={req.session_id!r}, "
+        f"provider_path={req.provider_path!r}, and password={req.password!r}. "
+        "Report the final ReplayResult."
     )
-    result = agent.run_sync(prompt, deps=deps)
+    result = await agent.run(prompt, deps=deps)
+    return result.output
 
-    print(result.output.model_dump_json(indent=2))
+
+@app.get("/health")
+async def health() -> dict:
+    return {"status": "ok"}
 
 
 if __name__ == "__main__":
-    main()
+    import uvicorn
+
+    print(f"[config] AGENT_COMM_PORT={AGENT_COMM_PORT}")
+    print(f"[config] RED_AGENT_PORT={RED_AGENT_PORT}")
+    uvicorn.run(app, host="127.0.0.1", port=RED_AGENT_PORT)

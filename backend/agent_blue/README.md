@@ -19,8 +19,8 @@ modules, or connection to a real target:
 Create and activate a virtual environment, then install dependencies:
 
 ```sh
-python3 -m venv .venv
-source .venv/bin/activate      # Windows: .venv\Scripts\activate
+python3 -m venv venv
+source venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
