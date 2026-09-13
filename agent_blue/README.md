@@ -8,11 +8,11 @@ simulation in [`../agent_sim`](../agent_sim)). Two independent, complementary
 defenses, both simulated / static -- no real sockets, processes, PKCS#11
 modules, or connection to a real target:
 
-| Layer | File | What it does |
-| --- | --- | --- |
-| Runtime fix | `hardened_agent.py` -> `HardenedSshAgent` | Fixes the root cause: `attempt_session_bind` records its marker whether or not the agent is locked (instead of being silently dropped at the locked gate), and socket classification is fail-safe -- a forwarded socket is remote by default and only becomes "local" on an explicit successful bind. Replaying the exact attack sequence from `agent_sim` now gets refused. |
-| Detection | `hardened_agent.py` -> `detect_bypass_signature()` | A log-pattern rule over raw debug lines (same shape as `../evidence/stock-openssh-10.4p1.txt`) that flags the required attack ordering -- lock, bind-rejected-while-locked, unlock, provider-add -- even against a real, unpatched agent's logs you can't modify. |
-| Agent | `defender_agent.py` | PydanticAI `Agent` with tools over both layers; replays the attack against the hardened runtime, runs the detector against a bundled sample unpatched log, and reports a structured `DefenseReport`. |
+| Layer | File                                                      | What it does |
+| --- |-----------------------------------------------------------| --- |
+| Runtime fix | `hardened_socket_agent.py` -> `HardenedSocketAgent`       | Fixes the root cause: `attempt_session_bind` records its marker whether or not the agent is locked (instead of being silently dropped at the locked gate), and socket classification is fail-safe -- a forwarded socket is remote by default and only becomes "local" on an explicit successful bind. Replaying the exact attack sequence from `agent_sim` now gets refused. |
+| Detection | `hardened_socket_agent.py` -> `detect_bypass_signature()` | A log-pattern rule over raw debug lines (same shape as `../evidence/stock-openssh-10.4p1.txt`) that flags the required attack ordering -- lock, bind-rejected-while-locked, unlock, provider-add -- even against a real, unpatched agent's logs you can't modify. |
+| Agent | `agent.py`                                                | PydanticAI `Agent` with tools over both layers; replays the attack against the hardened runtime, runs the detector against a bundled sample unpatched log, and reports a structured `DefenseReport`. |
 
 ## Setup
 
@@ -24,7 +24,7 @@ source .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-With a real model, create a `.env` file in this directory (never commit it) with your model and key:
+Create a `.env` file in this directory (never commit it) with your model and key:
 
 ```sh
 # .env
@@ -32,10 +32,10 @@ PYDANTIC_AI_MODEL=openai:gpt-4o-mini
 OPENAI_API_KEY=sk-...
 ```
 
-`defender_agent.py` loads `.env` automatically (via `python-dotenv`), so just run:
+# Run it
 
 ```sh
-python defender_agent.py
+python agent.py
 ```
 
 ## Scope

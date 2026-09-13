@@ -25,6 +25,8 @@ Usage:
 from __future__ import annotations
 
 import os
+import socket
+import threading
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
@@ -33,6 +35,18 @@ from pydantic_ai import Agent, RunContext
 from hardened_socket_agent import HardenedSocketAgent, detect_bypass_signature
 
 load_dotenv()
+
+AGENT_COMM_PORT = int(os.environ.get("AGENT_COMM_PORT", "8765"))
+
+
+def _listen_for_comm() -> None:
+    """Print every message agent_red sends to AGENT_COMM_PORT (runs as a daemon thread)."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind(("127.0.0.1", AGENT_COMM_PORT))
+    while True:
+        data, _ = sock.recvfrom(4096)
+        print(f"[agent_comm] {data.decode()}")
+
 
 SOCKET_ID = "fwd-0"
 SESSION_ID = "session-abc123"
@@ -165,17 +179,26 @@ def build_agent() -> Agent[HardenedSocketAgent, DefenseReport]:
 
 
 def main() -> None:
-    agent = build_agent()
-    deps = HardenedSocketAgent()
+    print(f"[config] AGENT_COMM_PORT={AGENT_COMM_PORT}")
 
-    prompt = (
-        "Defend against the forwarded-agent lock bypass using socket_id="
-        f"{SOCKET_ID!r}, session_id={SESSION_ID!r}, provider_path={PROVIDER_PATH!r}, "
-        "and password='agent-lock-proof'. Report the final DefenseReport."
-    )
-    result = agent.run_sync(prompt, deps=deps)
+    # Tool-running replay (moved to a background thread previously) is
+    # disabled -- agent_blue now just runs an ongoing loop listening on the
+    # inbound socket. See agent_red/agent.py for the equivalent tools.
+    # threading.Thread(target=_listen_for_comm, daemon=True).start()
+    #
+    # agent = build_agent()
+    # deps = HardenedSocketAgent()
+    #
+    # prompt = (
+    #     "Defend against the forwarded-agent lock bypass using socket_id="
+    #     f"{SOCKET_ID!r}, session_id={SESSION_ID!r}, provider_path={PROVIDER_PATH!r}, "
+    #     "and password='agent-lock-proof'. Report the final DefenseReport."
+    # )
+    # result = agent.run_sync(prompt, deps=deps)
+    #
+    # print(result.output.model_dump_json(indent=2))
 
-    print(result.output.model_dump_json(indent=2))
+    _listen_for_comm()
 
 
 if __name__ == "__main__":
